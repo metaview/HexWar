@@ -8,7 +8,8 @@
     body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', Arial, sans-serif; overflow: hidden; user-select: none; }
     #gameCanvas { display: block; cursor: pointer; }
     #ui {
-      position: fixed; top: 0; right: 0; width: 240px; height: 100vh;
+      position: fixed; top: 0; right: 0; width: 240px;
+      height: 100vh; height: 100dvh;
       background: linear-gradient(180deg, #161b22 0%, #0d1117 100%);
       border-left: 1px solid #30363d;
       display: flex; flex-direction: column; overflow: hidden;
@@ -836,7 +837,7 @@ function checkEndCondition() {
 function drawHex(col, row, fill, stroke) {
   const { x, y } = hexToPixel(col, row);
   const cx = x - camX, cy = y - camY;
-  if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > canvas.width-UI_W+HW*2 || cy > canvas.height+HEX_SIZE*2) return;
+  if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > (canvas.width-UI_W)/zoom+HW*2 || cy > canvas.height/zoom+HEX_SIZE*2) return;
   ctx.beginPath();
   for (let i = 0; i < 6; i++) {
     const a = Math.PI/180*(60*i - 30);
@@ -852,7 +853,7 @@ function drawHex(col, row, fill, stroke) {
 function drawUnit(unit) {
   const { x, y } = hexToPixel(unit.col, unit.row);
   const cx = x - camX, cy = y - camY;
-  if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > canvas.width-UI_W+HW*2 || cy > canvas.height+HEX_SIZE*2) return;
+  if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > (canvas.width-UI_W)/zoom+HW*2 || cy > canvas.height/zoom+HEX_SIZE*2) return;
 
   const def = unitDef(unit);
   const r = HEX_SIZE * 0.52;
@@ -908,7 +909,7 @@ function redraw() {
       if (map[r][c] !== 'grass') continue;
       const { x, y } = hexToPixel(c, r);
       const cx = x - camX, cy = y - camY;
-      if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > canvas.width-UI_W+HW*2 || cy > canvas.height+HEX_SIZE*2) continue;
+      if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > (canvas.width-UI_W)/zoom+HW*2 || cy > canvas.height/zoom+HEX_SIZE*2) continue;
       ctx.save();
       ctx.beginPath();
       for (let i = 0; i < 6; i++) {
@@ -942,7 +943,7 @@ function redraw() {
       if (map[r][c] !== 'sand') continue;
       const { x, y } = hexToPixel(c, r);
       const cx = x - camX, cy = y - camY;
-      if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > canvas.width-UI_W+HW*2 || cy > canvas.height+HEX_SIZE*2) continue;
+      if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > (canvas.width-UI_W)/zoom+HW*2 || cy > canvas.height/zoom+HEX_SIZE*2) continue;
       ctx.save();
       ctx.beginPath();
       for (let i = 0; i < 6; i++) {
@@ -976,7 +977,7 @@ function redraw() {
       if (map[r][c] !== 'forest') continue;
       const { x, y } = hexToPixel(c, r);
       const cx = x - camX, cy = y - camY;
-      if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > canvas.width-UI_W+HW*2 || cy > canvas.height+HEX_SIZE*2) continue;
+      if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > (canvas.width-UI_W)/zoom+HW*2 || cy > canvas.height/zoom+HEX_SIZE*2) continue;
       ctx.save();
       // clip to hex
       ctx.beginPath();
@@ -1024,7 +1025,7 @@ function redraw() {
       path.forEach(({ col, row, cost }) => {
         const { x, y } = hexToPixel(col, row);
         const cx = x - camX, cy = y - camY;
-        if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > canvas.width-UI_W+HW || cy > canvas.height+HEX_SIZE) return;
+        if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > (canvas.width-UI_W)/zoom+HW || cy > canvas.height/zoom+HEX_SIZE) return;
         ctx.save();
         ctx.globalAlpha = 0.55;
         ctx.fillStyle = color;
@@ -1063,7 +1064,7 @@ function redraw() {
       if (map[r][c] !== 'swamp') continue;
       const { x, y } = hexToPixel(c, r);
       const cx = x - camX, cy = y - camY;
-      if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > canvas.width-UI_W+HW*2 || cy > canvas.height+HEX_SIZE*2) continue;
+      if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > (canvas.width-UI_W)/zoom+HW*2 || cy > canvas.height/zoom+HEX_SIZE*2) continue;
       ctx.save();
       ctx.beginPath();
       for (let i = 0; i < 6; i++) {
@@ -1101,7 +1102,7 @@ function redraw() {
       if (map[r][c] !== 'bridge') continue;
       const { x, y } = hexToPixel(c, r);
       const cx = x - camX, cy = y - camY;
-      if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > canvas.width-UI_W+HW*2 || cy > canvas.height+HEX_SIZE*2) continue;
+      if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > (canvas.width-UI_W)/zoom+HW*2 || cy > canvas.height/zoom+HEX_SIZE*2) continue;
       ctx.save();
       ctx.strokeStyle = '#3E2008';
       ctx.lineWidth = 2;
