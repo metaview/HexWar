@@ -1,6 +1,6 @@
 ================================================================
   HEX STRATEGY – Projekt-Zusammenfassung
-  Erstellt: April 2026
+  Zuletzt aktualisiert: April 2026
 ================================================================
 
 AUFGABE
@@ -15,34 +15,85 @@ SPIELBESCHREIBUNG
 Datei:  /home/schallware/hex-strategy/index.html
 Öffnen: Direkt im Browser (kein Server nötig)
 
-Karte:  40 × 28 Hexfelder, prozedural generiert
+Karte:  35 × 25 Hexfelder, prozedural generiert (Seed = Date.now())
 Modus:  1 Spieler (Blau) vs. KI (Rot), rundenbasiert
 
 ----------------------------------------------------------------
 TERRAIN-TYPEN
 ----------------------------------------------------------------
 
-  Sand        – Bewegungskosten 2,   kein Verteidigungsbonus
-  Grasland    – Bewegungskosten 1,   kein Verteidigungsbonus
-  Wald        – Bewegungskosten 2,   +2 Verteidigung
-  Gebirge     – Bewegungskosten 3,   +3 Verteidigung
-  Fluss       – Bewegungskosten 2.5, -1 Verteidigung
-  See         – nicht passierbar
+  Sand        – Bewegungskosten 1,    kein Verteidigungsbonus
+                Visuelle Darstellung: senkrechte gestrichelte Beige-Linien
+  Grasland    – Bewegungskosten 1,    kein Verteidigungsbonus
+                Visuelle Darstellung: senkrechte gestrichelte Grün-Linien
+  Wald        – Bewegungskosten 2,    +2 Verteidigung
+                Visuelle Darstellung: stilisierter Nadelbaum (3 Dreiecksebenen + Stamm)
+  Gebirge     – Bewegungskosten 3,    +3 Verteidigung
+  Fluss       – nicht passierbar (Bewegungskosten 999)
+  See         – nicht passierbar (Bewegungskosten 999)
+  Brücke      – Bewegungskosten 1,    -1 Verteidigung
+                Je genau eine Brücke pro Fluss, platziert in der Flussmitte
+  Sumpf       – Sonderregel: verbraucht gesamtes Bewegungsbudget (min. 1 Schritt)
+                Verteidigung -1; Visuelle Darstellung: waagerechte gestrichelte
+                Dunkelgrün-Linien (versetzt je Zeile)
 
 ----------------------------------------------------------------
-EINHEITENTYPEN (je 8 pro Seite)
+EINHEITENTYPEN (je Seite)
 ----------------------------------------------------------------
 
   Typ             Symbol  HP  Angriff  Verteidigung  Bewegung  Reichweite
   ─────────────────────────────────────────────────────────────────────
-  Reiter          ♞       10    5          2            5        1 (Nahkampf)
-  Speerkämpfer    ⛨       12    3          5            3        1 (Nahkampf)
+  Reiter          🐎       10    5          2            6        1 (Nahkampf)
+  Speerkämpfer    🔱       12    3          5            4        1 (Nahkampf)
   Schwertträger   ⚔       14    5          4            3        1 (Nahkampf)
-  Bogenschütze    🏹        8    5          2            3        3 (Fernkampf)
-  Kanone          💣        8    7          1            2        4 (Artillerie)
+  Bogenschütze    🏹        8    5          2            4        3 (Fernkampf)
+  Katapult        🪨        8    7          1            2        5 (Artillerie)
 
-  Reihenfolge beim Aufstellen: Schwertträger, Speerkämpfer, Bogenschütze,
-  Reiter, Kanone, Schwertträger, Speerkämpfer, Bogenschütze
+----------------------------------------------------------------
+TYPVORTEILE (Stein-Schere-Papier-System)
+----------------------------------------------------------------
+
+  Speerkämpfer  schlägt  Reiter          (+2 Schaden)
+  Reiter        schlägt  Schwertträger   (+2 Schaden)
+  Schwertträger schlägt  Bogenschütze    (+2 Schaden)
+  Bogenschütze  schlägt  Speerkämpfer    (+2 Schaden)
+
+  Gegenschlag: Verteidiger schlägt mit halbem Typvorteil zurück,
+  sofern der Angreifer in seiner Reichweite liegt.
+  Im Kampflog: ⚡+N kennzeichnet Typvorteil.
+
+----------------------------------------------------------------
+ERFAHRUNGSSYSTEM
+----------------------------------------------------------------
+
+  Jede Einheit sammelt Kampferfahrung:
+    atkBonus += angerichteter Schaden / 10  (akkumuliert als Float)
+  Der ganzzahlige Anteil (Math.floor) erhöht den effektiven Angriffswert.
+  Im Kampflog: 📈+N kennzeichnet Erfahrungsbonus.
+  Im Einheiten-Panel: Angriff wird als "5 (+2)" angezeigt.
+
+----------------------------------------------------------------
+KONTROLLZONE (Kartenmitte)
+----------------------------------------------------------------
+
+  Aufbau: 2-3-2-Diamant (6 betretbare Grasfelder) um ein
+          unpassierbares Kernfeld in der Kartenmitte.
+  Punkte: +1 Punkt pro Runde für die Seite, die die Zone
+          alleine besetzt (Wertung am Ende jedes vollen Zuges).
+  Ziel:   10 Punkte → Sieg (alternativ: alle Feinde vernichten).
+  Einheiten in der Zone: halbierte Verteidigung, können nicht angreifen.
+
+----------------------------------------------------------------
+BALANCESYSTEM (Sumpf-Platzierung)
+----------------------------------------------------------------
+
+  Nach der Kartengenerierung wird geprüft, ob beide Seiten
+  gleichlange (terrain-kostenmäßige) Wege zur Kontrollzone haben.
+  Ist eine Seite im Vorteil, werden iterativ Sumpffelder auf
+  dem günstigeren Pfad platziert, bis die Pfadkosten ≤ 1 apart sind.
+  Ist kein gültiger Pfad möglich, wird die Karte neu generiert.
+  Der verwendete Pfad ist als Debug-Overlay sichtbar (blau/rot,
+  mit kumulativen Terrainkosten pro Feld).
 
 ----------------------------------------------------------------
 SPIELMECHANIK
@@ -50,25 +101,41 @@ SPIELMECHANIK
 
 Rundenablauf:
   1. Spieler wählt Einheit (Klick auf blaue Figur)
-  2. Blaue Felder = erreichbare Felder  → Klick zum Bewegen
-     Rote Felder  = angreifbare Feinde  → Klick zum Angreifen
+  2. Blaue Felder  = erreichbare Felder  → Klick zum Bewegen
+     Rote Felder   = angreifbare Feinde  → Klick zum Angreifen
   3. Nach Bewegung: Angriff wählen oder Esc zum Überspringen
-  4. "Zug beenden" → KI führt alle ihre Züge automatisch aus
+  4. "Zug beenden" → KI führt alle ihre Züge aus, dann Zonenbewertung
   5. Neuer Spielerzug beginnt
 
 Kampfregeln:
-  - Schaden = Angriff - Verteidigung des Ziels - Geländebonus ± 1 (Zufall)
-  - Nahkampf: Beide Seiten erleiden Schaden (Gegenschaden)
-  - Fernkampf (Bogenschütze/Kanone): Kein Gegenschaden
-  - Kanonen können keine Gebirge überqueren
+  - Schaden = Angriff (+ Erfahrung + Typvorteil) − Verteidigung − Geländebonus ± 1
+  - Einheiten in der Zone: Verteidigung halbiert
+  - Nahkampf: Gegenschlag mit halbem Typvorteil (sofern Angreifer noch lebt)
+  - Fernkampf: Gegenschlag nur wenn Angreifer in Reichweite des Verteidigers
 
 KI-Verhalten:
-  - Greift an, wenn ein Feind in Reichweite ist
-  - Bewegt sich sonst zum nächstgelegenen Feind
-  - Greift danach erneut an, falls möglich
+  - Terrain-bewusste Wegfindung (Dijkstra, Sumpf kostet 10)
+  - Greift an wenn Feind in Reichweite, bewegt sich sonst zur Zone
+  - Priorisiert schwache Einheiten und Zonenbesetzung
 
-Siegbedingung:
-  - Alle Einheiten des Gegners vernichten → Sieg/Niederlage-Overlay
+Siegbedingungen:
+  - 10 Zonenpunkte erreichen, oder
+  - Alle Einheiten des Gegners vernichten
+
+----------------------------------------------------------------
+VISUELLE DETAILS
+----------------------------------------------------------------
+
+  Grasland    – senkrechte gestrichelte Linien (#3e7a28, versetzte Pausen)
+  Sand        – senkrechte gestrichelte Linien (#9e8a5a, versetzte Pausen)
+  Sumpf       – waagerechte gestrichelte Linien (#2a4a1e auf #4a7a35,
+                versetzte Pausen je Zeile)
+  Wald        – stilisierter Nadelbaum: brauner Stamm + 3 Dreiecksebenen
+                in abgestuften Dunkelgrüntönen mit Konturlinie
+  Brücke      – Holzplanken-Overlay (quer zur Flussrichtung)
+  Zone        – halbtransparente Einfärbung (neutral/blau/rot),
+                Kern dunkel/gesperrt
+  Debug-Pfade – blaue/rote Überlagerung mit kumulativen Terrainkosten
 
 ----------------------------------------------------------------
 STEUERUNG
@@ -77,7 +144,7 @@ STEUERUNG
   Linksklick          Einheit auswählen / Ziel anklicken
   Rechtsklick / Esc   Auswahl aufheben
   Pfeiltasten         Karte scrollen
-  Maus ziehen         Karte scrollen
+  Maus ziehen         Karte scrollen (Drag)
   "Zug beenden"       KI-Zug starten
   "Neues Spiel"       Karte neu generieren + Einheiten neu aufstellen
 
@@ -86,21 +153,28 @@ TECHNISCHE UMSETZUNG
 ----------------------------------------------------------------
 
   Rendering:      HTML5 Canvas 2D API
-  Hex-Grid:       Offset-Koordinaten (gerade Zeilen versetzt)
+  Hex-Grid:       Offset-Koordinaten, COLS=35, ROWS=25, HEX_SIZE=28
+                  Gerade Zeilen versetzt (row & 1 → 0.5 * HW Shift)
+  hexNeighbors:   Odd-Row → even-Offsets, Even-Row → odd-Offsets
+                  (kontraintuitiv aber korrekt für dieses Koordinatensystem)
   Kartengenerierung:
-    - Value-Noise mit 8 zufälligen Gebirgszentren
-    - 2× Glättungspass
-    - Höhenstufen → Terrain
-    - 3 Flusstrassen von Berggipfeln Richtung Kartenrand
-  Pathfinding:    Dijkstra (Bewegungskosten-gewichtet)
-  Angriffsradius: Hex-Distanz via Cube-Koordinaten
+    - Value-Noise Heightmap, 2 Gipfel + 2 Seen
+    - Terrain-Schwellwerte, danach 2 Flüsse (Noise-Gradient-Walk)
+    - Je 1 Brücke pro Fluss an der Flussmitte
+    - Sumpf-Balancing nach Kartengenerierung
+    - Zonenzellen nach Fluss-/Brücken-Platzierung auf Gras erzwungen
+  Pathfinding:    Dijkstra (getReachable, pathDistance, dijkstraPath)
+  Typvorteil:     TYPE_ADVANTAGE-Lookup-Tabelle
+  Erfahrung:      atkBonus pro Einheit (Float, floor bei Verwendung)
   RNG:            Seeded LCG (seed = Date.now())
+  Kamera:         Clamp-Minimum bei -HW/-HEX_SIZE (vollständige Randtiles)
   UI:             Reines CSS + DOM (kein Framework)
 
 ----------------------------------------------------------------
 DATEIEN
 ----------------------------------------------------------------
 
-  index.html   – komplettes Spiel (HTML + CSS + JS, ~600 Zeilen)
+  index.html                   – komplettes Spiel (~1360 Zeilen)
+  PROJEKT_ZUSAMMENFASSUNG.txt  – diese Datei
 
 ================================================================
