@@ -10,8 +10,23 @@
     #ui {
       position: fixed; top: 0; right: 0; width: 240px; height: 100vh;
       background: linear-gradient(180deg, #161b22 0%, #0d1117 100%);
-      border-left: 1px solid #30363d; padding: 12px; overflow-y: auto;
+      border-left: 1px solid #30363d;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #ui-top {
+      flex-shrink: 0; padding: 12px 12px 8px 12px;
+      display: flex; flex-direction: column; gap: 8px;
+      border-bottom: 1px solid #30363d;
+    }
+    #ui-scroll {
+      flex: 1; overflow-y: auto; padding: 10px 12px 6px 12px;
       display: flex; flex-direction: column; gap: 10px;
+    }
+    #ui-bottom {
+      flex-shrink: 0; padding: 6px 12px 10px 12px;
+      border-top: 1px solid #30363d;
+      background: #161b22;
+      display: flex; flex-direction: column; gap: 6px;
     }
     #ui h1 { font-size: 14px; color: #58a6ff; text-transform: uppercase; letter-spacing: 2px; border-bottom: 1px solid #30363d; padding-bottom: 6px; }
     .card { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 10px; font-size: 12px; }
@@ -32,7 +47,7 @@
     #btnEndTurn { background: #238636; color: #fff; }
     #btnEndTurn:hover:not(:disabled) { background: #2ea043; }
     #btnEndTurn:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
-    #btnNewGame { background: #21262d; color: #8b949e; border: 1px solid #30363d; margin-top: auto; }
+    #btnNewGame { background: #21262d; color: #8b949e; border: 1px solid #30363d; }
     #btnNewGame:hover { background: #30363d; color: #e6edf3; }
     .legend-item { display: flex; align-items: center; gap: 6px; margin: 2px 0; font-size: 11px; color: #8b949e; }
     .legend-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
@@ -59,25 +74,27 @@
 </head>
 <body>
 <canvas id="gameCanvas"></canvas>
-<div id="ui" style="overflow-y: scroll;">
-  <h1>Hex Strategy</h1>
-  <div id="turnBadge" class="player">Zug 1 — Spieler</div>
-  <div class="card phase-indicator" id="phaseCard">Einheit auswählen</div>
+<div id="ui">
+  <div id="ui-top">
+    <h1>Hex Strategy</h1>
+    <div id="turnBadge" class="player">Zug 1 — Spieler</div>
+    <div class="card phase-indicator" id="phaseCard">Einheit auswählen</div>
 
-  <div class="card" id="unitCard" style="display:none">
-    <h3 id="unitName">—</h3>
-    <div class="hp-bar"><div class="hp-fill" id="hpFill" style="width:100%"></div></div>
-    <div class="stat-row"><span class="stat-label">HP</span><span class="stat-val" id="statHp">—</span></div>
-    <div class="stat-row"><span class="stat-label">Angriff</span><span class="stat-val" id="statAtk">—</span></div>
-    <div class="stat-row"><span class="stat-label">Verteidigung</span><span class="stat-val" id="statDef">—</span></div>
-    <div class="stat-row"><span class="stat-label">Bewegung</span><span class="stat-val" id="statMov">—</span></div>
-    <div class="stat-row"><span class="stat-label">Reichweite</span><span class="stat-val" id="statRng">—</span></div>
-    <div class="stat-row"><span class="stat-val" id="unitStatus" style="font-size:11px;color:#8b949e"></span></div>
+    <div class="card" id="unitCard" style="display:none">
+      <h3 id="unitName">—</h3>
+      <div class="hp-bar"><div class="hp-fill" id="hpFill" style="width:100%"></div></div>
+      <div class="stat-row"><span class="stat-label">HP</span><span class="stat-val" id="statHp">—</span></div>
+      <div class="stat-row"><span class="stat-label">Angriff</span><span class="stat-val" id="statAtk">—</span></div>
+      <div class="stat-row"><span class="stat-label">Verteidigung</span><span class="stat-val" id="statDef">—</span></div>
+      <div class="stat-row"><span class="stat-label">Bewegung</span><span class="stat-val" id="statMov">—</span></div>
+      <div class="stat-row"><span class="stat-label">Reichweite</span><span class="stat-val" id="statRng">—</span></div>
+      <div class="stat-row"><span class="stat-val" id="unitStatus" style="font-size:11px;color:#8b949e"></span></div>
+    </div>
+
+    <button id="btnEndTurn">Zug beenden</button>
   </div>
-
-  <button id="btnEndTurn">Zug beenden</button>
-
-  <div class="card">
+  <div id="ui-scroll">
+    <div class="card">
     <h3>Armee</h3>
     <div class="stat-row"><span class="stat-label" style="color:#79c0ff">Spieler</span><span class="stat-val" id="countPlayer">—</span></div>
     <div class="stat-row"><span class="stat-label" style="color:#f85149">KI</span><span class="stat-val" id="countAI">—</span></div>
@@ -140,13 +157,14 @@
     Rechtsklick / Esc: Abwählen<br>
     Pfeiltasten / Maus ziehen: Karte scrollen
   </p>
-</div>
-<div id="mapContainer" style="position:fixed;bottom:0;right:0;width:240px;overflow:hidden">
-  <div class="card" style="padding:6px">
-    <h3 style="margin-bottom:4px">Minimap</h3>
-    <canvas id="minimap" style="width:100%;display:block;border-radius:4px;border:1px solid #30363d"></canvas>
+  </div><!-- end ui-scroll -->
+  <div id="ui-bottom">
+    <div class="card" style="padding:6px">
+      <h3 style="margin-bottom:4px">Minimap</h3>
+      <canvas id="minimap" style="width:100%;display:block;border-radius:4px;border:1px solid #30363d"></canvas>
+    </div>
+    <button id="btnNewGame">Neues Spiel</button>
   </div>
-  <button id="btnNewGame">Neues Spiel</button>
 </div>
 
 <div id="msgOverlay">
