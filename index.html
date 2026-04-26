@@ -738,9 +738,20 @@ function pathDistance(c1, r1, c2, r2) {
 // ============================================================
 //  AI
 // ============================================================
+function centerOnCell(col, row) {
+  const { x, y } = hexToPixel(col, row);
+  const vpW = (canvas.width - UI_W) / zoom;
+  const vpH = canvas.height / zoom;
+  const maxX = Math.max(-HW, HW*(COLS+0.5) - vpW);
+  const maxY = Math.max(-HEX_SIZE, VERT_SPACING*(ROWS-1)+HEX_SIZE*2 - vpH);
+  camX = Math.max(-HW, Math.min(maxX, x - vpW/2));
+  camY = Math.max(-HEX_SIZE, Math.min(maxY, y - vpH/2));
+}
+
 function doAITurn() {
   aiThinking = true;
   addLog('— KI am Zug —', 'turn');
+  const savedCam = { x: camX, y: camY };  // remember player's view
   const aiUnits = units.filter(u => u.owner===1);
   let delay = 0;
 
@@ -748,6 +759,7 @@ function doAITurn() {
     const d = delay;
     setTimeout(() => {
       if (!units.includes(unit)) { checkEndCondition(); return; }
+      centerOnCell(unit.col, unit.row); // pan to acting unit
       unit.moved = false; unit.attacked = false;
       const enemies = units.filter(u => u.owner===0);
       if (!enemies.length) return;
@@ -805,6 +817,8 @@ function doAITurn() {
     selectedUnit = null; reachableHexes = []; attackableHexes = [];
     gamePhase = 'select';
     addLog(`— Zug ${turnCount}: Spieler —`, 'turn');
+    // restore player's camera view
+    camX = savedCam.x; camY = savedCam.y;
     redraw(); updateUI();
   }, delay + 300);
 }
@@ -1456,7 +1470,7 @@ window.addEventListener('load', () => {
       const t = e.touches[0];
       const dx = dragStart.x - t.clientX;
       const dy = dragStart.y - t.clientY;
-      if (Math.abs(dx) + Math.abs(dy) > 5) {
+      if (Math.abs(dx) + Math.abs(dy) > 12) {
         isDragging = true;
         const maxX = Math.max(-HW, HW*(COLS+0.5)-(canvas.width-UI_W)/zoom);
         const maxY = Math.max(-HEX_SIZE, VERT_SPACING*(ROWS-1)+HEX_SIZE*2-canvas.height/zoom);
