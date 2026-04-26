@@ -215,6 +215,9 @@ let canvas, ctx;
 let map = [];
 let units = [];
 let camX = -HW, camY = -HEX_SIZE;
+let zoom = 1;
+const ZOOM_MIN = 0.4, ZOOM_MAX = 2.5;
+let pinchStartDist = null, pinchStartZoom = 1, pinchStartCam = null;
 let isDragging = false, dragStart = null, camStart = null;
 let selectedUnit = null;
 let reachableHexes = [];
@@ -865,6 +868,8 @@ function drawUnit(unit) {
 
 function redraw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.scale(zoom, zoom);
 
   // terrain
   for (let r = 0; r < ROWS; r++) {
@@ -1142,6 +1147,7 @@ function redraw() {
 
   // units
   units.forEach(drawUnit);
+  ctx.restore();
 }
 
 // ============================================================
@@ -1150,7 +1156,7 @@ function redraw() {
 function canvasClick(e) {
   if (isDragging || aiThinking || currentPlayer!==0) return;
   const rect = canvas.getBoundingClientRect();
-  const { col, row } = pixelToHex(e.clientX - rect.left + camX, e.clientY - rect.top + camY);
+  const { col, row } = pixelToHex((e.clientX - rect.left) / zoom + camX, (e.clientY - rect.top) / zoom + camY);
   if (col<0||col>=COLS||row<0||row>=ROWS) return;
 
   if (gamePhase==='select') {
@@ -1218,10 +1224,10 @@ function onMouseMove(e) {
   const dx = e.clientX-dragStart.x, dy = e.clientY-dragStart.y;
   if (Math.abs(dx)+Math.abs(dy) > 5) {
     isDragging = true;
-    const maxX = Math.max(0, HW*(COLS+0.5)-(canvas.width-UI_W));
-    const maxY = Math.max(0, VERT_SPACING*(ROWS-1)+HEX_SIZE*2-canvas.height);
-    camX = Math.max(-HW, Math.min(maxX, camStart.x-dx));
-    camY = Math.max(-HEX_SIZE, Math.min(maxY, camStart.y-dy));
+    const maxX = Math.max(-HW, HW*(COLS+0.5)-(canvas.width-UI_W)/zoom);
+    const maxY = Math.max(-HEX_SIZE, VERT_SPACING*(ROWS-1)+HEX_SIZE*2-canvas.height/zoom);
+    camX = Math.max(-HW, Math.min(maxX, camStart.x-dx/zoom));
+    camY = Math.max(-HEX_SIZE, Math.min(maxY, camStart.y-dy/zoom));
     redraw();
   }
 }
@@ -1346,25 +1352,58 @@ window.addEventListener('load', () => {
   // Touch support for panning and tapping
   canvas.addEventListener('touchstart', e => {
     e.preventDefault();
-    const t = e.touches[0];
-    isDragging = false;
-    dragStart = { x: t.clientX, y: t.clientY };
-    camStart  = { x: camX, y: camY };
+    if (e.touches.length === 2) {
+      // start pinch
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      pinchStartDist = Math.hypot(dx, dy);
+      pinchStartZoom = zoom;
+      pinchStartCam  = { x: camX, y: camY };
+      dragStart = null;
+    } else {
+      const t = e.touches[0];
+      isDragging = false;
+      dragStart = { x: t.clientX, y: t.clientY };
+      camStart  = { x: camX, y: camY };
+      pinchStartDist = null;
+    }
   }, { passive: false });
 
   canvas.addEventListener('touchmove', e => {
     e.preventDefault();
-    if (!dragStart) return;
-    const t = e.touches[0];
-    const dx = dragStart.x - t.clientX;
-    const dy = dragStart.y - t.clientY;
-    if (Math.abs(dx) + Math.abs(dy) > 5) {
+    if (e.touches.length === 2 && pinchStartDist !== null) {
+      // pinch zoom
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      const newZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, pinchStartZoom * dist / pinchStartDist));
+      // zoom around pinch center
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      const rect  = canvas.getBoundingClientRect();
+      const worldX = (midX - rect.left) / zoom + camX;
+      const worldY = (midY - rect.top)  / zoom + camY;
+      zoom = newZoom;
+      camX = worldX - (midX - rect.left) / zoom;
+      camY = worldY - (midY - rect.top)  / zoom;
+      const maxX = Math.max(-HW, HW*(COLS+0.5)-(canvas.width-UI_W)/zoom);
+      const maxY = Math.max(-HEX_SIZE, VERT_SPACING*(ROWS-1)+HEX_SIZE*2-canvas.height/zoom);
+      camX = Math.max(-HW, Math.min(maxX, camX));
+      camY = Math.max(-HEX_SIZE, Math.min(maxY, camY));
       isDragging = true;
-      const maxX = Math.max(0, HW*(COLS+0.5)-(canvas.width-UI_W));
-      const maxY = Math.max(0, VERT_SPACING*(ROWS-1)+HEX_SIZE*2-canvas.height);
-      camX = Math.max(-HW, Math.min(maxX, camStart.x + dx));
-      camY = Math.max(-HEX_SIZE, Math.min(maxY, camStart.y + dy));
       redraw();
+    } else if (dragStart && e.touches.length === 1) {
+      const t = e.touches[0];
+      const dx = dragStart.x - t.clientX;
+      const dy = dragStart.y - t.clientY;
+      if (Math.abs(dx) + Math.abs(dy) > 5) {
+        isDragging = true;
+        const maxX = Math.max(-HW, HW*(COLS+0.5)-(canvas.width-UI_W)/zoom);
+        const maxY = Math.max(-HEX_SIZE, VERT_SPACING*(ROWS-1)+HEX_SIZE*2-canvas.height/zoom);
+        camX = Math.max(-HW, Math.min(maxX, camStart.x + dx/zoom));
+        camY = Math.max(-HEX_SIZE, Math.min(maxY, camStart.y + dy/zoom));
+        redraw();
+      }
     }
   }, { passive: false });
 
