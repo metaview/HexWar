@@ -1,0 +1,106 @@
+================================================================
+  HEX STRATEGY – Projekt-Zusammenfassung
+  Erstellt: April 2026
+================================================================
+
+AUFGABE
+-------
+Entwicklung eines rundenbasierten Hex-Strategiespiels in purem
+JavaScript (keine externen Libraries), als einzelne HTML-Datei.
+
+----------------------------------------------------------------
+SPIELBESCHREIBUNG
+----------------------------------------------------------------
+
+Datei:  /home/schallware/hex-strategy/index.html
+Öffnen: Direkt im Browser (kein Server nötig)
+
+Karte:  40 × 28 Hexfelder, prozedural generiert
+Modus:  1 Spieler (Blau) vs. KI (Rot), rundenbasiert
+
+----------------------------------------------------------------
+TERRAIN-TYPEN
+----------------------------------------------------------------
+
+  Sand        – Bewegungskosten 2,   kein Verteidigungsbonus
+  Grasland    – Bewegungskosten 1,   kein Verteidigungsbonus
+  Wald        – Bewegungskosten 2,   +2 Verteidigung
+  Gebirge     – Bewegungskosten 3,   +3 Verteidigung
+  Fluss       – Bewegungskosten 2.5, -1 Verteidigung
+  See         – nicht passierbar
+
+----------------------------------------------------------------
+EINHEITENTYPEN (je 8 pro Seite)
+----------------------------------------------------------------
+
+  Typ             Symbol  HP  Angriff  Verteidigung  Bewegung  Reichweite
+  ─────────────────────────────────────────────────────────────────────
+  Reiter          ♞       10    5          2            5        1 (Nahkampf)
+  Speerkämpfer    ⛨       12    3          5            3        1 (Nahkampf)
+  Schwertträger   ⚔       14    5          4            3        1 (Nahkampf)
+  Bogenschütze    🏹        8    5          2            3        3 (Fernkampf)
+  Kanone          💣        8    7          1            2        4 (Artillerie)
+
+  Reihenfolge beim Aufstellen: Schwertträger, Speerkämpfer, Bogenschütze,
+  Reiter, Kanone, Schwertträger, Speerkämpfer, Bogenschütze
+
+----------------------------------------------------------------
+SPIELMECHANIK
+----------------------------------------------------------------
+
+Rundenablauf:
+  1. Spieler wählt Einheit (Klick auf blaue Figur)
+  2. Blaue Felder = erreichbare Felder  → Klick zum Bewegen
+     Rote Felder  = angreifbare Feinde  → Klick zum Angreifen
+  3. Nach Bewegung: Angriff wählen oder Esc zum Überspringen
+  4. "Zug beenden" → KI führt alle ihre Züge automatisch aus
+  5. Neuer Spielerzug beginnt
+
+Kampfregeln:
+  - Schaden = Angriff - Verteidigung des Ziels - Geländebonus ± 1 (Zufall)
+  - Nahkampf: Beide Seiten erleiden Schaden (Gegenschaden)
+  - Fernkampf (Bogenschütze/Kanone): Kein Gegenschaden
+  - Kanonen können keine Gebirge überqueren
+
+KI-Verhalten:
+  - Greift an, wenn ein Feind in Reichweite ist
+  - Bewegt sich sonst zum nächstgelegenen Feind
+  - Greift danach erneut an, falls möglich
+
+Siegbedingung:
+  - Alle Einheiten des Gegners vernichten → Sieg/Niederlage-Overlay
+
+----------------------------------------------------------------
+STEUERUNG
+----------------------------------------------------------------
+
+  Linksklick          Einheit auswählen / Ziel anklicken
+  Rechtsklick / Esc   Auswahl aufheben
+  Pfeiltasten         Karte scrollen
+  Maus ziehen         Karte scrollen
+  "Zug beenden"       KI-Zug starten
+  "Neues Spiel"       Karte neu generieren + Einheiten neu aufstellen
+
+----------------------------------------------------------------
+TECHNISCHE UMSETZUNG
+----------------------------------------------------------------
+
+  Rendering:      HTML5 Canvas 2D API
+  Hex-Grid:       Offset-Koordinaten (gerade Zeilen versetzt)
+  Kartengenerierung:
+    - Value-Noise mit 8 zufälligen Gebirgszentren
+    - 2× Glättungspass
+    - Höhenstufen → Terrain
+    - 3 Flusstrassen von Berggipfeln Richtung Kartenrand
+  Pathfinding:    Dijkstra (Bewegungskosten-gewichtet)
+  Angriffsradius: Hex-Distanz via Cube-Koordinaten
+  RNG:            Seeded LCG (seed = Date.now())
+  UI:             Reines CSS + DOM (kein Framework)
+
+----------------------------------------------------------------
+DATEIEN
+----------------------------------------------------------------
+
+  index.html   – komplettes Spiel (HTML + CSS + JS, ~600 Zeilen)
+
+================================================================

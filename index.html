@@ -1,0 +1,1359 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Hex Strategy</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', Arial, sans-serif; overflow: hidden; user-select: none; }
+    #gameCanvas { display: block; cursor: pointer; }
+    #ui {
+      position: fixed; top: 0; right: 0; width: 240px; height: 100vh;
+      background: linear-gradient(180deg, #161b22 0%, #0d1117 100%);
+      border-left: 1px solid #30363d; padding: 12px; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    #ui h1 { font-size: 14px; color: #58a6ff; text-transform: uppercase; letter-spacing: 2px; border-bottom: 1px solid #30363d; padding-bottom: 6px; }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 10px; font-size: 12px; }
+    .card h3 { font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+    .stat-row { display: flex; justify-content: space-between; padding: 2px 0; }
+    .stat-label { color: #8b949e; }
+    .stat-val { color: #e6edf3; font-weight: bold; }
+    .hp-bar { height: 6px; background: #21262d; border-radius: 3px; margin: 4px 0; overflow: hidden; }
+    .hp-fill { height: 100%; background: #3fb950; border-radius: 3px; transition: width 0.3s; }
+    #turnBadge { text-align: center; font-size: 13px; font-weight: bold; padding: 8px; border-radius: 6px; }
+    #turnBadge.player { background: #1c3a6b; color: #79c0ff; border: 1px solid #388bfd; }
+    #turnBadge.ai { background: #4a1515; color: #f85149; border: 1px solid #da3633; }
+    button {
+      width: 100%; padding: 8px; border: none; border-radius: 6px; cursor: pointer;
+      font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;
+      transition: all 0.15s;
+    }
+    #btnEndTurn { background: #238636; color: #fff; }
+    #btnEndTurn:hover:not(:disabled) { background: #2ea043; }
+    #btnEndTurn:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
+    #btnNewGame { background: #21262d; color: #8b949e; border: 1px solid #30363d; margin-top: auto; }
+    #btnNewGame:hover { background: #30363d; color: #e6edf3; }
+    .legend-item { display: flex; align-items: center; gap: 6px; margin: 2px 0; font-size: 11px; color: #8b949e; }
+    .legend-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+    #logBox { font-size: 11px; color: #8b949e; max-height: 120px; overflow-y: auto; line-height: 1.5; }
+    #logBox div { padding: 1px 0; }
+    #logBox .log-combat { color: #f0883e; }
+    #logBox .log-move   { color: #79c0ff; }
+    #logBox .log-death  { color: #f85149; }
+    #logBox .log-turn   { color: #3fb950; font-weight: bold; }
+    #msgOverlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+      align-items: center; justify-content: center; z-index: 100; display: none;
+    }
+    #msgBox { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 32px 48px; text-align: center; }
+    #msgBox h2 { font-size: 24px; margin-bottom: 12px; }
+    #msgBox p { color: #8b949e; margin-bottom: 20px; }
+    #msgBox button { width: auto; padding: 10px 24px; background: #238636; color: #fff; font-size: 14px; }
+    .phase-indicator { font-size: 11px; color: #8b949e; text-align: center; }
+    .hint { font-size: 10px; color: #484f58; text-align: center; line-height: 1.6; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+  </style>
+</head>
+<body>
+<canvas id="gameCanvas"></canvas>
+<div id="ui">
+  <h1>Hex Strategy</h1>
+  <div id="turnBadge" class="player">Zug 1 — Spieler</div>
+  <div class="card phase-indicator" id="phaseCard">Einheit auswählen</div>
+
+  <div class="card" id="unitCard" style="display:none">
+    <h3 id="unitName">—</h3>
+    <div class="hp-bar"><div class="hp-fill" id="hpFill" style="width:100%"></div></div>
+    <div class="stat-row"><span class="stat-label">HP</span><span class="stat-val" id="statHp">—</span></div>
+    <div class="stat-row"><span class="stat-label">Angriff</span><span class="stat-val" id="statAtk">—</span></div>
+    <div class="stat-row"><span class="stat-label">Verteidigung</span><span class="stat-val" id="statDef">—</span></div>
+    <div class="stat-row"><span class="stat-label">Bewegung</span><span class="stat-val" id="statMov">—</span></div>
+    <div class="stat-row"><span class="stat-label">Reichweite</span><span class="stat-val" id="statRng">—</span></div>
+    <div class="stat-row"><span class="stat-val" id="unitStatus" style="font-size:11px;color:#8b949e"></span></div>
+  </div>
+
+  <button id="btnEndTurn">Zug beenden</button>
+
+  <div class="card">
+    <h3>Armee</h3>
+    <div class="stat-row"><span class="stat-label" style="color:#79c0ff">Spieler</span><span class="stat-val" id="countPlayer">—</span></div>
+    <div class="stat-row"><span class="stat-label" style="color:#f85149">KI</span><span class="stat-val" id="countAI">—</span></div>
+  </div>
+
+  <div class="card">
+    <h3>Kontrollzone</h3>
+    <div class="stat-row"><span class="stat-label">Besitzer</span><span class="stat-val" id="zoneOwnerLabel">⬜ Neutral</span></div>
+    <div style="margin:4px 0 2px 0;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+        <span style="color:#79c0ff;font-size:11px">Spieler</span>
+        <span style="color:#79c0ff;font-weight:bold"><span id="zoneScorePlayer">0</span>/10</span>
+      </div>
+      <div style="height:6px;background:#21262d;border-radius:3px;overflow:hidden">
+        <div id="zoneBarPlayer" style="height:100%;background:#388bfd;border-radius:3px;transition:width 0.3s;width:0%"></div>
+      </div>
+    </div>
+    <div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+        <span style="color:#f85149;font-size:11px">KI</span>
+        <span style="color:#f85149;font-weight:bold"><span id="zoneScoreAI">0</span>/10</span>
+      </div>
+      <div style="height:6px;background:#21262d;border-radius:3px;overflow:hidden">
+        <div id="zoneBarAI" style="height:100%;background:#da3633;border-radius:3px;transition:width 0.3s;width:0%"></div>
+      </div>
+    </div>
+    <div style="font-size:10px;color:#484f58;margin-top:5px;line-height:1.5">Einheiten in der Zone: kein Angriff, halbe Verteidigung</div>
+  </div>
+
+  <div class="card">
+    <h3>Gelände-Legende</h3>
+    <div class="legend-item"><div class="legend-swatch" style="background:#c2b280"></div>Sand</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#5a9e3b"></div>Grasland</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#2d5a1b"></div>Wald</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#7a7a8a"></div>Gebirge</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#4a7fbf"></div>Fluss (unpassierbar)</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#2356a8"></div>See (unpassierbar)</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#8B5E3C"></div>Brücke</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#4a7a3a"></div>Sumpf (1 Feld/Zug)</div>
+  </div>
+
+  <div class="card">
+    <h3>Einheiten</h3>
+    <div style="font-size:10px;color:#484f58;line-height:1.7">
+      ♞ Reiter – schnell (5), schwach<br>
+      ⛨ Speerkämpfer – robust, langsam<br>
+      ⚔ Schwertträger – stark &amp; zäh<br>
+      🏹 Bogenschütze – Fernkampf (3)<br>
+      💣 Katapult – Artillerie (4), sehr langsam
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Kampflog</h3>
+    <div id="logBox"></div>
+  </div>
+
+  <p class="hint">
+    Klick: Einheit wählen / Ziel anklicken<br>
+    Rechtsklick / Esc: Abwählen<br>
+    Pfeiltasten / Maus ziehen: Karte scrollen
+  </p>
+  <button id="btnNewGame">Neues Spiel</button>
+</div>
+
+<div id="msgOverlay">
+  <div id="msgBox">
+    <h2 id="msgTitle">Game Over</h2>
+    <p id="msgText">—</p>
+    <button onclick="initGame()">Neues Spiel</button>
+  </div>
+</div>
+
+<script>
+// ============================================================
+//  CONSTANTS
+// ============================================================
+const COLS = 35, ROWS = 25;
+const HEX_SIZE = 28;
+const HW = Math.sqrt(3) * HEX_SIZE;    // horizontal spacing
+const VERT_SPACING = HEX_SIZE * 1.5;   // vertical spacing
+const UI_W = 240;
+const SHOW_DEBUG_PATHS = false; // toggle visualisation of balance paths
+
+const COLOR_REACHABLE  = 'rgba(100,180,255,0.35)';
+const COLOR_ATTACKABLE = 'rgba(255,80,80,0.42)';
+const COLOR_SELECTED   = 'rgba(255,220,50,0.52)';
+
+// Control zone: 2-3-2 diamond shape; center cell is impassable core
+const _ZC = Math.floor(COLS/2), _ZR = Math.floor(2*ROWS/3);
+const ZONE_CORE  = { col: _ZC, row: _ZR };
+const ZONE_CELLS = [
+  { col: _ZC-1, row: _ZR-1 }, { col: _ZC, row: _ZR-1 },          // row -1: 2 cells
+  { col: _ZC-1, row: _ZR   }, { col: _ZC+1, row: _ZR   },         // row  0: flanks of 3
+  { col: _ZC-1, row: _ZR+1 }, { col: _ZC,   row: _ZR+1 },         // row +1: 2 cells
+];
+
+// ============================================================
+//  TERRAIN
+// ============================================================
+const TERRAIN = {
+  sand:     { label:'Sand',      color:'#c2b280', moveCost:1,     passable:true,  defBonus: 0 },
+  grass:    { label:'Grasland',  color:'#5a9e3b', moveCost:1,     passable:true,  defBonus: 0 },
+  forest:   { label:'Wald',      color:'#2d5a1b', moveCost:2,     passable:true,  defBonus: 2 },
+  mountain: { label:'Gebirge',   color:'#7a7a8a', moveCost:3,     passable:true,  defBonus: 3 },
+  river:    { label:'Fluss',     color:'#4a7fbf', moveCost:999,   passable:false, defBonus: 0 },
+  lake:     { label:'See',       color:'#2356a8', moveCost:999,   passable:false, defBonus: 0 },
+  bridge:   { label:'Brücke',    color:'#8B5E3C', moveCost:1,     passable:true,  defBonus:-1 },
+  swamp:    { label:'Sumpf',     color:'#4a7a3a', moveCost:999,   passable:true,  defBonus:-1 },  // moveCost handled specially in getReachable
+};
+
+// ============================================================
+//  UNIT DEFINITIONS
+// ============================================================
+const UNIT_TYPES = {
+  cavalry: { label:'Reiter',        symbol:'🐎', hp:10, atk:5, def:2, mov:6, range:1 },
+  spear:   { label:'Speerkämpfer',  symbol:'🔱', hp:12, atk:3, def:5, mov:4, range:1 },
+  archer:  { label:'Bogenschütze',  symbol:'🏹', hp: 8, atk:5, def:2, mov:4, range:3 },
+  sword:   { label:'Schwertträger', symbol:'⚔', hp:14, atk:5, def:4, mov:3, range:1 },
+  catapult:  { label:'Katapult',    symbol:'🪨', hp: 8, atk:7, def:1, mov:2, range:5 },
+};
+
+// TYPE_ADVANTAGE[attacker][defender] = extra damage bonus
+const TYPE_ADVANTAGE = {
+  cavalry: { sword:   2 },   // Reiter > Schwertträger
+  spear:   { cavalry: 2 },   // Speerkämpfer > Reiter
+  sword:   { archer:  2 },   // Schwertträger > Bogenschütze
+  archer:  { spear:   2 },   // Bogenschütze > Speerkämpfer
+};
+
+// ============================================================
+//  STATE
+// ============================================================
+let canvas, ctx;
+let map = [];
+let units = [];
+let camX = -HW, camY = -HEX_SIZE;
+let isDragging = false, dragStart = null, camStart = null;
+let selectedUnit = null;
+let reachableHexes = [];
+let attackableHexes = [];
+let currentPlayer = 0;   // 0=human  1=AI
+let turnCount = 1;
+let gamePhase = 'select'; // select | move | attack
+let aiThinking = false;
+
+// Control zone state
+let zoneOwner = -1;      // -1=neutral, 0=player, 1=AI
+let zoneScore = [0, 0];  // [playerScore, aiScore]
+let debugPaths = { player: [], ai: [] }; // visualisation of balance paths
+const ZONE_WIN_SCORE = 10;
+
+function inZone(col, row) {
+  return ZONE_CELLS.some(z => z.col===col && z.row===row);
+}
+function inZoneCore(col, row) {
+  return col === ZONE_CORE.col && row === ZONE_CORE.row;
+}
+
+function evaluateZone() {
+  const zUnits = units.filter(u => inZone(u.col, u.row));
+  const owners = [...new Set(zUnits.map(u => u.owner))];
+  zoneOwner = owners.length === 1 ? owners[0] : -1;
+  if (zoneOwner >= 0) {
+    zoneScore[zoneOwner]++;
+    addLog(`Zone: ${zoneOwner===0?'Spieler':'KI'} +1 Punkt (${zoneScore[zoneOwner]}/${ZONE_WIN_SCORE})`, 'turn');
+  }
+}
+
+// ============================================================
+//  SEEDED RNG
+// ============================================================
+let seed = Date.now();
+function rng()           { seed = (seed * 1664525 + 1013904223) & 0xffffffff; return (seed >>> 0) / 0xffffffff; }
+function rngRange(a, b)  { return a + Math.floor(rng() * (b - a + 1)); }
+
+// ============================================================
+//  HEX MATH
+// ============================================================
+function hexToPixel(col, row) {
+  return {
+    x: HW * (col + 0.5 * (row & 1)),
+    y: VERT_SPACING * row
+  };
+}
+
+function pixelToHex(px, py) {
+  const r = Math.round(py / VERT_SPACING);
+  const c = Math.round(px / HW - 0.5 * (r & 1));
+  return { col: c, row: r };
+}
+
+function hexNeighbors(col, row) {
+  const even = [[-1,0],[1,0],[0,-1],[1,-1],[0,1],[1,1]];
+  const odd  = [[-1,0],[1,0],[-1,-1],[0,-1],[-1,1],[0,1]];
+  // odd rows are shifted right in hexToPixel, so odd rows use the "even" offsets and vice versa
+  const dirs = (row & 1) ? even : odd;
+  return dirs
+    .map(([dc,dr]) => ({ col: col+dc, row: row+dr }))
+    .filter(h => h.col >= 0 && h.col < COLS && h.row >= 0 && h.row < ROWS);
+}
+
+function hexDistance(c1, r1, c2, r2) {
+  function toCube(c, r) {
+    const x = c - (r - (r & 1)) / 2;
+    return { x, y: -x - r, z: r };
+  }
+  const a = toCube(c1, r1), b = toCube(c2, r2);
+  return Math.max(Math.abs(a.x-b.x), Math.abs(a.y-b.y), Math.abs(a.z-b.z));
+}
+
+// ============================================================
+//  MAP GENERATION
+// ============================================================
+function generateMap() {
+  seed = Date.now();
+
+  // Height noise with mountain peaks
+  const noise = Array.from({ length: ROWS }, () => new Float32Array(COLS));
+  const peaks = Array.from({ length: 2 }, () => ({
+    c: rngRange(5, COLS-6), r: rngRange(5, ROWS-6), h: 0.7 + rng() * 0.3
+  }));
+  const lakes = Array.from({ length: 2 }, () => ({
+    c: rngRange(5, COLS-2), r: rngRange(5, ROWS-2), h: 0.7 + rng() * 0.3
+  }));
+
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      let h = 0.28 + rng() * 0.15;
+      for (const p of peaks) {
+        const d = Math.sqrt((c - p.c) ** 2 + (r - p.r) ** 2);
+        h += p.h * Math.max(0, 1 - d / 8);
+      }
+      for (const l of lakes) {
+        const d = Math.sqrt((c - l.c) ** 2 + (r - l.r) ** 2);
+        h -= l.h * Math.max(0, 1 - d / 8);
+      }
+      noise[r][c] = Math.min(1, Math.max(0, h));
+    }
+  }
+
+  // Smooth 2×
+  for (let pass = 0; pass < 2; pass++) {
+    const tmp = noise.map(row => Float32Array.from(row));
+    for (let r = 1; r < ROWS-1; r++) {
+      for (let c = 1; c < COLS-1; c++) {
+        tmp[r][c] = (noise[r][c]*4 + noise[r-1][c] + noise[r+1][c] + noise[r][c-1] + noise[r][c+1]) / 8;
+      }
+    }
+    for (let r = 0; r < ROWS; r++) noise[r].set(tmp[r]);
+  }
+
+  // Terrain from height
+  map = Array.from({ length: ROWS }, () => new Array(COLS).fill('grass'));
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const h = noise[r][c];
+      if      (h > 0.85) map[r][c] = 'mountain';
+      else if (h > 0.60) map[r][c] = 'forest';
+      else if (h > 0.35) map[r][c] = 'grass';
+      else if (h > 0.28) map[r][c] = 'sand';
+      else               map[r][c] = 'lake';
+    }
+  }
+
+  // Carve 2 rivers — one per mountain peak, flowing downhill via noise gradient
+  const allRiverCells = [];
+  const riverTraces = []; // per-river cell arrays for bridge placement
+  for (let ri = 0; ri < peaks.length; ri++) {
+    // Find mountain cell closest to this peak
+    let startC = -1, startR = -1, bestD = Infinity;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (map[r][c] !== 'mountain') continue;
+        const d = (c - peaks[ri].c)**2 + (r - peaks[ri].r)**2;
+        if (d < bestD) { bestD = d; startC = c; startR = r; }
+      }
+    }
+    // Fallback to forest if no mountain found
+    if (startC === -1) {
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (map[r][c] !== 'forest') continue;
+          const d = (c - peaks[ri].c)**2 + (r - peaks[ri].r)**2;
+          if (d < bestD) { bestD = d; startC = c; startR = r; }
+        }
+      }
+    }
+    if (startC === -1) continue;
+
+    let c = startC, r = startR;
+    const traceCells = [];
+
+    for (let step = 0; step < 80; step++) {
+      if (map[r][c] === 'lake') break;
+      map[r][c] = 'river';
+      traceCells.push({c, r});
+      if (c===0||c===COLS-1||r===0||r===ROWS-1) break;
+
+      // Exclude cells already marked as river (prevents loops/gaps); lake is allowed as endpoint
+      let nbrs = hexNeighbors(c,r).filter(n =>
+        map[n.row][n.col] !== 'river'
+      );
+      if (!nbrs.length) break;
+
+      // Weighted random choice: downhill bias + randomness = organic meander
+      // Pure noise gradient, no directional pull — river finds the lake naturally
+      const scores = nbrs.map(n => {
+        // count river neighbours of candidate (excluding current cell)
+        const riverNbCount = hexNeighbors(n.col, n.row).filter(
+          nn => !(nn.col === c && nn.row === r) && map[nn.row][nn.col] === 'river'
+        ).length;
+        // penalise clumping: each extra river neighbour adds 0.4 to the score (= less likely)
+        return noise[n.row][n.col] + riverNbCount * 0.4;
+      });
+      const minScore = Math.min(...scores);
+      const temp = 0.08; // low temp = strong downhill bias; meander comes from noise shape
+      const weights = scores.map(s => Math.exp(-(s - minScore) / temp));
+      const totalW = weights.reduce((a, b) => a + b, 0);
+      let pick = rng() * totalW;
+      let chosen = nbrs[nbrs.length - 1];
+      for (let i = 0; i < nbrs.length; i++) {
+        pick -= weights[i];
+        if (pick <= 0) { chosen = nbrs[i]; break; }
+      }
+
+      c = chosen.col; r = chosen.row;
+    }
+    allRiverCells.push(...traceCells);
+    riverTraces.push(traceCells);
+  }
+
+  // Place exactly one bridge per river at its midpoint (interior cells only)
+  for (const trace of riverTraces) {
+    // only consider interior cells
+    const interior = trace.filter(({c, r}) => c>1 && c<COLS-2 && r>1 && r<ROWS-2 && map[r][c]==='river');
+    if (!interior.length) continue;
+    const mid = interior[Math.floor(interior.length / 2)];
+    map[mid.r][mid.c] = 'bridge';
+  }
+
+  // Force zone cells to grass AFTER rivers/bridges so they are never overwritten
+  for (const z of ZONE_CELLS) map[z.row][z.col] = 'grass';
+  map[ZONE_CORE.row][ZONE_CORE.col] = 'grass';
+
+  // Force army starting zone to grass AFTER rivers/bridges so they are never overwritten
+  for (let r = 1; r < 4; r++) {
+    for (let c = 1; c <= 4; c++) {
+      map[r][c] = 'grass';
+    }
+    for (let c = COLS-2; c >= COLS-5; c--) {
+      map[r][c] = 'grass';
+    }
+  }
+}
+
+// ============================================================
+//  BALANCE: equalize path length with swamp
+// ============================================================
+function balanceWithSwamp() {
+  // Dijkstra path from start to nearest reachable zone cell (respects terrain costs)
+  function dijkstraPath(start) {
+    const dist = new Map();
+    const prev = new Map();
+    const startKey = `${start.col},${start.row}`;
+    dist.set(startKey, 0);
+    const queue = [{ col: start.col, row: start.row, cost: 0 }];
+    let found = null;
+
+    while (queue.length) {
+      queue.sort((a, b) => a.cost - b.cost);
+      const cur = queue.shift();
+      const curKey = `${cur.col},${cur.row}`;
+      if (dist.get(curKey) < cur.cost) continue; // stale entry
+      if (inZone(cur.col, cur.row)) { found = cur; break; }
+
+      for (const nb of hexNeighbors(cur.col, cur.row)) {
+        const key = `${nb.col},${nb.row}`;
+        const t = TERRAIN[map[nb.row][nb.col]];
+        // block impassable unless it's a zone entry cell
+        if (!t.passable && !inZone(nb.col, nb.row)) continue;
+        if (inZoneCore(nb.col, nb.row)) continue;
+        const stepCost = inZone(nb.col, nb.row) ? 1 : t.moveCost;
+        const newCost = cur.cost + stepCost;
+        if (!dist.has(key) || dist.get(key) > newCost) {
+          dist.set(key, newCost);
+          prev.set(key, curKey);
+          queue.push({ col: nb.col, row: nb.row, cost: newCost });
+        }
+      }
+    }
+    if (!found) return [];
+    // reconstruct path as array of {col, row, cost}
+    const path = [];
+    let node = `${found.col},${found.row}`;
+    while (node) {
+      const [c,r] = node.split(',');
+      path.push({ col:+c, row:+r, cost: dist.get(node) ?? 0 });
+      node = prev.get(node);
+    }
+    return path.reverse();
+  }
+
+  // Find cavalry start position by simulating placeStartingUnits scan (cavalry = index 3)
+  function findCavalryPos(side) {
+    let found = null, count = 0;
+    outer:
+    for (let r = 1; r < ROWS; r++) {
+      const cols = side === 0
+        ? [1, 2, 3, 4]
+        : [COLS-2, COLS-3, COLS-4, COLS-5];
+      for (const c of cols) {
+        if (TERRAIN[map[r][c]].passable) {
+          if (count === 3) { found = { col: c, row: r }; break outer; }
+          count++;
+        }
+      }
+    }
+    return found || (side === 0 ? { col: 2, row: 4 } : { col: COLS-3, row: 4 });
+  }
+
+  const playerCenter = findCavalryPos(0);
+  const aiCenter     = findCavalryPos(1);
+
+  // Check both sides can even reach the zone before iterating
+  const initialP = dijkstraPath(playerCenter);
+  const initialA = dijkstraPath(aiCenter);
+  // Also invalid if any zone cell is impassable terrain (lake/river)
+  const zoneBlocked = ZONE_CELLS.some(z => !TERRAIN[map[z.row][z.col]].passable);
+  if (!initialP.length || !initialA.length || zoneBlocked) return false;
+
+  // Iteratively place one swamp on the shorter path, recalculate, repeat until equal
+  const MAX_ITER = 40;
+  for (let iter = 0; iter < MAX_ITER; iter++) {
+    const pPath = dijkstraPath(playerCenter);
+    const aPath = dijkstraPath(aiCenter);
+    // Compare actual terrain costs (last cell's cumulative cost), not hop count
+    const pCost = pPath.length ? pPath[pPath.length-1].cost : Infinity;
+    const aCost = aPath.length ? aPath[aPath.length-1].cost : Infinity;
+    const diff = pCost - aCost;
+
+    if (Math.abs(diff) <= 1) {
+      // Done — store final paths for visualisation
+      debugPaths = { player: pPath, ai: aPath };
+      break;
+    }
+
+    // Place one swamp somewhere in the middle of the CHEAPER (shorter-cost) path
+    const shorterPath = diff > 0 ? aPath : pPath; // aPath cheaper when diff>0, pPath cheaper when diff<0
+    // Search for a placeable cell skipping start (4) and end (4) of path
+    let placed = false;
+    for (let i = 4; i < shorterPath.length - 4; i++) {
+      const { col, row } = shorterPath[i];
+      const t = map[row][col];
+      if (t === 'grass' || t === 'sand' || t === 'forest') {
+        map[row][col] = 'swamp';
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) break; // no more placeable cells → stop
+
+    // Last iteration: store paths
+    if (iter === MAX_ITER - 1) {
+      debugPaths = { player: dijkstraPath(playerCenter), ai: dijkstraPath(aiCenter) };
+    }
+  }
+  return true;
+}
+
+// ============================================================
+//  UNITS
+// ============================================================
+function createUnit(type, owner, col, row) {
+  const d = UNIT_TYPES[type];
+  return { id: Math.random(), type, owner, col, row, hp: d.hp, maxHp: d.hp, moved: false, attacked: false, atkBonus: 0 };
+}
+function unitAt(col, row)  { return units.find(u => u.col===col && u.row===row); }
+function unitDef(u)         { return UNIT_TYPES[u.type]; }
+
+function placeStartingUnits() {
+  units = [];
+  const order = ['sword','spear','archer','cavalry','catapult','sword','spear','archer'];
+
+  // Player (left side, owner=0)
+  let placed = 0;
+  for (let r = 1; r < ROWS && placed < order.length; r++) {
+    for (let c = 1; c <= 4 && placed < order.length; c++) {
+      if (TERRAIN[map[r][c]].passable && !unitAt(c,r)) {
+        units.push(createUnit(order[placed], 0, c, r));
+        placed++;
+      }
+    }
+  }
+
+  // AI (right side, owner=1)
+  placed = 0;
+  for (let r = 1; r < ROWS && placed < order.length; r++) {
+    for (let c = COLS-2; c >= COLS-5 && placed < order.length; c--) {
+      if (TERRAIN[map[r][c]].passable && !unitAt(c,r)) {
+        units.push(createUnit(order[placed], 1, c, r));
+        placed++;
+      }
+    }
+  }
+}
+
+// ============================================================
+//  PATHFINDING
+// ============================================================
+function getReachable(unit) {
+  const def = unitDef(unit);
+  const dist = new Map([[ `${unit.col},${unit.row}`, 0 ]]);
+  const queue = [{ col: unit.col, row: unit.row, cost: 0 }];
+
+  while (queue.length) {
+    queue.sort((a,b) => a.cost-b.cost);
+    const cur = queue.shift();
+    const curCost = dist.get(`${cur.col},${cur.row}`);
+    for (const nb of hexNeighbors(cur.col, cur.row)) {
+      const t = TERRAIN[map[nb.row][nb.col]];
+      if (!t.passable) continue;
+      if (unit.type==='catapult' && map[nb.row][nb.col]==='mountain') continue;
+      const occ = unitAt(nb.col, nb.row);
+      if (occ && occ.owner !== unit.owner) continue;
+      // Swamp exhausts all remaining movement (unit can enter but not pass through)
+      const stepCost = map[nb.row][nb.col] === 'swamp' ? def.mov : t.moveCost;
+      const newCost = curCost + stepCost;
+      // Guarantee at least 1 step regardless of movement points vs cost
+      if (newCost > def.mov && curCost > 0) continue;
+      const key = `${nb.col},${nb.row}`;
+      if (!dist.has(key) || dist.get(key) > newCost) {
+        dist.set(key, newCost);
+        queue.push({ col: nb.col, row: nb.row, cost: newCost, stepCost });
+      }
+    }
+  }
+
+  return [...dist.keys()]
+    .map(k => { const [c,r] = k.split(','); return { col:+c, row:+r }; })
+    .filter(h => !(h.col===unit.col && h.row===unit.row) && !unitAt(h.col,h.row) && !inZoneCore(h.col,h.row));
+}
+
+function getAttackable(unit) {
+  if (inZone(unit.col, unit.row)) return []; // zone units cannot attack
+  const def = unitDef(unit);
+  return units
+    .filter(u => u.owner !== unit.owner && hexDistance(unit.col,unit.row,u.col,u.row) <= def.range)
+    .map(u => ({ col:u.col, row:u.row }));
+}
+
+// ============================================================
+//  COMBAT
+// ============================================================
+function doCombat(attacker, defender) {
+  if (!units.includes(attacker) || !units.includes(defender)) return;
+  if (inZone(attacker.col, attacker.row)) return; // zone units cannot attack
+  const aDef = unitDef(attacker), dDef = unitDef(defender);
+  const isRanged = aDef.range > 1;
+  const tDef = TERRAIN[map[defender.row][defender.col]];
+
+  // Units in the zone have halved defense
+  const defDef = inZone(defender.col, defender.row) ? Math.floor(dDef.def / 2) : dDef.def;
+  const typeBonus = (TYPE_ADVANTAGE[attacker.type] || {})[defender.type] || 0;
+  const expAtk = Math.floor(attacker.atkBonus);
+  let dmg = Math.max(1, aDef.atk + expAtk + typeBonus - defDef - tDef.defBonus + rngRange(-1,1));
+  defender.hp -= dmg;
+  attacker.atkBonus += dmg / 10;
+  const bonusNote = typeBonus > 0 ? ` ⚡+${typeBonus}` : '';
+  const expNote = expAtk > 0 ? ` 📈+${expAtk}` : '';
+  addLog(`${aDef.label} → ${dDef.label}: ${dmg} Schaden${bonusNote}${expNote}${inZone(defender.col,defender.row)?' (Zone!)':''}`, 'combat');
+
+  if (!isRanged && units.includes(attacker)) {
+    const tAtk = TERRAIN[map[attacker.row][attacker.col]];
+    const atkDef = inZone(attacker.col, attacker.row) ? Math.floor(aDef.def / 2) : aDef.def;
+    // defender counter-attack type bonus (halved, rounded down)
+    const counterBonus = Math.floor(((TYPE_ADVANTAGE[defender.type] || {})[attacker.type] || 0) / 2);
+    let cdmg = Math.max(1, dDef.atk + counterBonus - atkDef - tAtk.defBonus + rngRange(-1,1));
+    attacker.hp -= cdmg;
+    const cBonusNote = counterBonus > 0 ? ` ⚡+${counterBonus}` : '';
+    addLog(`↩ Gegenschaden: ${cdmg}${cBonusNote}`, 'combat');
+  } else if (isRanged && units.includes(attacker)) {
+    // ranged attacker: defender can counter only if attacker is within defender's range
+    const dist = hexDistance(attacker.col, attacker.row, defender.col, defender.row);
+    if (dist <= dDef.range) {
+      const tAtk = TERRAIN[map[attacker.row][attacker.col]];
+      const atkDef = inZone(attacker.col, attacker.row) ? Math.floor(aDef.def / 2) : aDef.def;
+      const counterBonus = Math.floor(((TYPE_ADVANTAGE[defender.type] || {})[attacker.type] || 0) / 2);
+      let cdmg = Math.max(1, dDef.atk + counterBonus - atkDef - tAtk.defBonus + rngRange(-1,1));
+      attacker.hp -= cdmg;
+      const cBonusNote = counterBonus > 0 ? ` ⚡+${counterBonus}` : '';
+      addLog(`↩ Gegenschaden: ${cdmg}${cBonusNote}`, 'combat');
+    }
+  }
+
+  if (defender.hp <= 0) { units = units.filter(u=>u!==defender); addLog(`${dDef.label} vernichtet!`, 'death'); }
+  if (attacker.hp <= 0) { units = units.filter(u=>u!==attacker); addLog(`${aDef.label} vernichtet!`, 'death'); }
+  if (units.includes(attacker)) { attacker.attacked = true; attacker.moved = true; }
+}
+
+// ============================================================
+//  PATHFINDING DISTANCE  (terrain-aware, ignores units)
+// ============================================================
+// pathDistance: terrain-aware BFS; swamp counts as cost 10 so AI routes around it if possible
+function pathDistance(c1, r1, c2, r2) {
+  if (c1===c2 && r1===r2) return 0;
+  const distMap = new Map(); distMap.set(`${c1},${r1}`, 0);
+  const queue = [{ col:c1, row:r1, d:0 }];
+  while (queue.length) {
+    queue.sort((a,b)=>a.d-b.d);
+    const cur = queue.shift();
+    const curD = distMap.get(`${cur.col},${cur.row}`);
+    if (cur.col===c2 && cur.row===r2) return curD;
+    for (const nb of hexNeighbors(cur.col, cur.row)) {
+      const key = `${nb.col},${nb.row}`;
+      const t = TERRAIN[map[nb.row][nb.col]];
+      if (!t.passable) continue;
+      if (inZoneCore(nb.col, nb.row)) continue;
+      const cost = map[nb.row][nb.col]==='swamp' ? 10 : t.moveCost < 999 ? t.moveCost : 999;
+      const nd = curD + cost;
+      if (!distMap.has(key) || distMap.get(key) > nd) {
+        distMap.set(key, nd);
+        queue.push({ col:nb.col, row:nb.row, d:nd });
+      }
+    }
+  }
+  return Infinity;
+}
+
+// ============================================================
+//  AI
+// ============================================================
+function doAITurn() {
+  aiThinking = true;
+  addLog('— KI am Zug —', 'turn');
+  const aiUnits = units.filter(u => u.owner===1);
+  let delay = 0;
+
+  for (const unit of aiUnits) {
+    const d = delay;
+    setTimeout(() => {
+      if (!units.includes(unit)) { checkEndCondition(); return; }
+      unit.moved = false; unit.attacked = false;
+      const enemies = units.filter(u => u.owner===0);
+      if (!enemies.length) return;
+      enemies.sort((a,b) => hexDistance(unit.col,unit.row,a.col,a.row) - hexDistance(unit.col,unit.row,b.col,b.row));
+      const target = enemies[0];
+      const def = unitDef(unit);
+
+      // attack before move if in range (zone units cannot attack)
+      if (!inZone(unit.col, unit.row) && hexDistance(unit.col,unit.row,target.col,target.row) <= def.range) {
+        doCombat(unit, target); redraw(); updateUI(); checkEndCondition(); return;
+      }
+
+      // move closer — use real path distance to navigate around rivers
+      const reachable = getReachable(unit);
+      if (reachable.length) {
+        // Primary goal: closest enemy (path-aware). Secondary: zone cells if no enemy nearby.
+        const zoneCells = ZONE_CELLS.filter(z => !unitAt(z.col, z.row));
+        const targetGoals = enemies.length
+          ? [{ col: target.col, row: target.row }]
+          : zoneCells;
+        // Also pull AI toward zone if no enemy is very close
+        const nearestEnemyPath = pathDistance(unit.col, unit.row, target.col, target.row);
+        const goals = nearestEnemyPath > 6 && zoneCells.length
+          ? [...zoneCells, { col: target.col, row: target.row }]
+          : [{ col: target.col, row: target.row }];
+
+        reachable.sort((a, b) => {
+          const bestA = Math.min(...goals.map(g => pathDistance(a.col, a.row, g.col, g.row)));
+          const bestB = Math.min(...goals.map(g => pathDistance(b.col, b.row, g.col, g.row)));
+          return bestA - bestB;
+        });
+        const best = reachable[0];
+        unit.col = best.col; unit.row = best.row;
+        unit.moved = true;
+      }
+
+      // attack after move (zone units cannot attack)
+      if (!inZone(unit.col, unit.row) && units.includes(target) && hexDistance(unit.col,unit.row,target.col,target.row) <= def.range) {
+        doCombat(unit, target);
+      } else {
+        unit.moved = true; unit.attacked = true;
+      }
+      redraw(); updateUI(); checkEndCondition();
+    }, d);
+    delay += 380;
+  }
+
+  setTimeout(() => {
+    evaluateZone();
+    if (checkEndCondition()) return;
+    aiThinking = false;
+    currentPlayer = 0;
+    turnCount++;
+    units.forEach(u => { u.moved = false; u.attacked = false; });
+    selectedUnit = null; reachableHexes = []; attackableHexes = [];
+    gamePhase = 'select';
+    addLog(`— Zug ${turnCount}: Spieler —`, 'turn');
+    redraw(); updateUI();
+  }, delay + 300);
+}
+
+// ============================================================
+//  END CONDITION
+// ============================================================
+function checkEndCondition() {
+  const p = units.filter(u=>u.owner===0).length;
+  const a = units.filter(u=>u.owner===1).length;
+  if (!p || !a) {
+    const winner = p ? 'Spieler' : 'KI';
+    setTimeout(() => showMessage(p ? 'Sieg! 🎉' : 'Niederlage!', `${winner} hat alle Einheiten vernichtet!`), 400);
+    return true;
+  }
+  if (zoneScore[0] >= ZONE_WIN_SCORE) {
+    setTimeout(() => showMessage('Sieg! 🎉', `Spieler kontrolliert die Zone (${zoneScore[0]}/${ZONE_WIN_SCORE} Punkte)!`), 400);
+    return true;
+  }
+  if (zoneScore[1] >= ZONE_WIN_SCORE) {
+    setTimeout(() => showMessage('Niederlage!', `KI kontrolliert die Zone (${zoneScore[1]}/${ZONE_WIN_SCORE} Punkte)!`), 400);
+    return true;
+  }
+  return false;
+}
+
+// ============================================================
+//  DRAW
+// ============================================================
+function drawHex(col, row, fill, stroke) {
+  const { x, y } = hexToPixel(col, row);
+  const cx = x - camX, cy = y - camY;
+  if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > canvas.width-UI_W+HW*2 || cy > canvas.height+HEX_SIZE*2) return;
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = Math.PI/180*(60*i - 30);
+    const px = cx + HEX_SIZE * Math.cos(a);
+    const py = cy + HEX_SIZE * Math.sin(a);
+    i===0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py);
+  }
+  ctx.closePath();
+  ctx.fillStyle = fill; ctx.fill();
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1; ctx.stroke(); }
+}
+
+function drawUnit(unit) {
+  const { x, y } = hexToPixel(unit.col, unit.row);
+  const cx = x - camX, cy = y - camY;
+  if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > canvas.width-UI_W+HW*2 || cy > canvas.height+HEX_SIZE*2) return;
+
+  const def = unitDef(unit);
+  const r = HEX_SIZE * 0.52;
+  const dim = unit.moved && unit.attacked;
+
+  ctx.save();
+  ctx.globalAlpha = dim ? 0.4 : 1;
+
+  // drop shadow
+  ctx.beginPath(); ctx.arc(cx+2, cy+2, r, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill();
+
+  // body
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
+  const g = ctx.createRadialGradient(cx-3, cy-3, 2, cx, cy, r);
+  if (unit.owner===0) { g.addColorStop(0,'#5ab4ff'); g.addColorStop(1,'#1c4f9c'); }
+  else                { g.addColorStop(0,'#ff6b6b'); g.addColorStop(1,'#8b1c1c'); }
+  ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = unit.owner===0?'#79c0ff':'#f85149';
+  ctx.lineWidth = 1.5; ctx.stroke();
+
+  // symbol
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${Math.round(HEX_SIZE*0.55)}px Arial`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(def.symbol, cx, cy+1);
+
+  // HP bar
+  const bw = r*1.6, bh = 3, bx = cx-bw/2, by = cy+r+3;
+  ctx.fillStyle = '#21262d'; ctx.fillRect(bx, by, bw, bh);
+  const pct = unit.hp / unit.maxHp;
+  ctx.fillStyle = pct > 0.5 ? '#3fb950' : pct > 0.25 ? '#d29922' : '#f85149';
+  ctx.fillRect(bx, by, bw*pct, bh);
+
+  ctx.restore();
+}
+
+function redraw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // terrain
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      drawHex(c, r, TERRAIN[map[r][c]].color, 'rgba(0,0,0,0.15)');
+    }
+  }
+
+  // grass vertical dashed line overlays
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (map[r][c] !== 'grass') continue;
+      const { x, y } = hexToPixel(c, r);
+      const cx = x - camX, cy = y - camY;
+      if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > canvas.width-UI_W+HW*2 || cy > canvas.height+HEX_SIZE*2) continue;
+      ctx.save();
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = Math.PI/180*(60*i-30);
+        ctx.lineTo(cx + HEX_SIZE*Math.cos(a), cy + HEX_SIZE*Math.sin(a));
+      }
+      ctx.closePath(); ctx.clip();
+      ctx.strokeStyle = '#3e7a28';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5, 5]);
+      const stripeW = 4;
+      const left = cx - HEX_SIZE;
+      let colIdx = 0;
+      for (let sx = left + stripeW; sx < cx + HEX_SIZE; sx += stripeW * 2) {
+        ctx.lineDashOffset = (colIdx % 2 === 0) ? 0 : 5;
+        ctx.beginPath();
+        ctx.moveTo(sx, cy - HEX_SIZE);
+        ctx.lineTo(sx, cy + HEX_SIZE);
+        ctx.stroke();
+        colIdx++;
+      }
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
+      ctx.restore();
+    }
+  }
+
+  // sand vertical dashed line overlays
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (map[r][c] !== 'sand') continue;
+      const { x, y } = hexToPixel(c, r);
+      const cx = x - camX, cy = y - camY;
+      if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > canvas.width-UI_W+HW*2 || cy > canvas.height+HEX_SIZE*2) continue;
+      ctx.save();
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = Math.PI/180*(60*i-30);
+        ctx.lineTo(cx + HEX_SIZE*Math.cos(a), cy + HEX_SIZE*Math.sin(a));
+      }
+      ctx.closePath(); ctx.clip();
+      ctx.strokeStyle = '#9e8a5a';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([1, 2]);
+      const stripeW = 2;
+      const left = cx - HEX_SIZE;
+      let colIdx = 0;
+      for (let sx = left + stripeW; sx < cx + HEX_SIZE; sx += stripeW * 2) {
+        ctx.lineDashOffset = (colIdx % 2 === 0) ? 0 : 5;
+        ctx.beginPath();
+        ctx.moveTo(sx, cy - HEX_SIZE);
+        ctx.lineTo(sx, cy + HEX_SIZE);
+        ctx.stroke();
+        colIdx++;
+      }
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
+      ctx.restore();
+    }
+  }
+
+  // forest: stylized pine tree per tile
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (map[r][c] !== 'forest') continue;
+      const { x, y } = hexToPixel(c, r);
+      const cx = x - camX, cy = y - camY;
+      if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > canvas.width-UI_W+HW*2 || cy > canvas.height+HEX_SIZE*2) continue;
+      ctx.save();
+      // clip to hex
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = Math.PI/180*(60*i-30);
+        ctx.lineTo(cx + HEX_SIZE*Math.cos(a), cy + HEX_SIZE*Math.sin(a));
+      }
+      ctx.closePath(); ctx.clip();
+
+      const bx = cx, by = cy + HEX_SIZE * 0.35; // base anchor
+
+      // trunk
+      ctx.fillStyle = '#5a3a1a';
+      ctx.fillRect(bx - 2, by - HEX_SIZE * 0.15, 4, HEX_SIZE * 0.28);
+
+      // three stacked triangle layers (bottom → top, getting narrower & higher)
+      const layers = [
+        { w: HEX_SIZE * 0.62, h: HEX_SIZE * 0.38, oy: 0 },
+        { w: HEX_SIZE * 0.48, h: HEX_SIZE * 0.34, oy: -HEX_SIZE * 0.22 },
+        { w: HEX_SIZE * 0.32, h: HEX_SIZE * 0.28, oy: -HEX_SIZE * 0.40 },
+      ];
+      layers.forEach(({ w, h, oy }, i) => {
+        const ty = by - HEX_SIZE * 0.15 + oy;
+        ctx.beginPath();
+        ctx.moveTo(bx,     ty - h);
+        ctx.lineTo(bx - w, ty);
+        ctx.lineTo(bx + w, ty);
+        ctx.closePath();
+        ctx.fillStyle = i === 0 ? '#1e4010' : i === 1 ? '#255214' : '#2d6318';
+        ctx.fill();
+        // thin darker outline
+        ctx.strokeStyle = '#122a09';
+        ctx.lineWidth = 0.6;
+        ctx.stroke();
+      });
+
+      ctx.restore();
+    }
+  }
+
+  // debug: balance paths
+  if (SHOW_DEBUG_PATHS && (debugPaths.player.length || debugPaths.ai.length)) {
+    const cavMov = UNIT_TYPES.cavalry.mov;
+    const drawPath = (path, color, label) => {
+      path.forEach(({ col, row, cost }) => {
+        const { x, y } = hexToPixel(col, row);
+        const cx = x - camX, cy = y - camY;
+        if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > canvas.width-UI_W+HW || cy > canvas.height+HEX_SIZE) return;
+        ctx.save();
+        ctx.globalAlpha = 0.55;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = Math.PI/180*(60*i-30);
+          ctx.lineTo(cx + HEX_SIZE*Math.cos(a), cy + HEX_SIZE*Math.sin(a));
+        }
+        ctx.closePath(); ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold 9px Arial`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(cost, cx, cy);
+        ctx.restore();
+      });
+      // total cost label at last cell
+      if (path.length) {
+        const last = path[path.length-1];
+        const { x, y } = hexToPixel(last.col, last.row);
+        const cx = x - camX, cy = y - camY;
+        ctx.save();
+        ctx.fillStyle = color; ctx.globalAlpha = 0.95;
+        ctx.font = 'bold 11px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(`${label}: ${last.cost}`, cx, cy - HEX_SIZE - 4);
+        ctx.restore();
+      }
+    };
+    drawPath(debugPaths.player, 'rgba(90,180,255,0.7)',  'Spieler');
+    drawPath(debugPaths.ai,     'rgba(255,90,90,0.7)',   'KI');
+  }
+
+  // swamp stripe overlays
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (map[r][c] !== 'swamp') continue;
+      const { x, y } = hexToPixel(c, r);
+      const cx = x - camX, cy = y - camY;
+      if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > canvas.width-UI_W+HW*2 || cy > canvas.height+HEX_SIZE*2) continue;
+      ctx.save();
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = Math.PI/180*(60*i-30);
+        ctx.lineTo(cx + HEX_SIZE*Math.cos(a), cy + HEX_SIZE*Math.sin(a));
+      }
+      ctx.closePath(); ctx.clip();
+      // base fill
+      ctx.fillStyle = '#4a7a35';
+      ctx.fillRect(cx - HEX_SIZE, cy - HEX_SIZE, HEX_SIZE * 2, HEX_SIZE * 2);
+      // dashed horizontal dark lines, alternating offset per line
+      ctx.strokeStyle = '#2a4a1e';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([8, 4]);
+      const stripeH = 4;
+      const top = cy - HEX_SIZE;
+      let lineIdx = 0;
+      for (let sy = top + stripeH; sy < cy + HEX_SIZE; sy += stripeH * 2) {
+        ctx.lineDashOffset = (lineIdx % 2 === 0) ? 0 : 6; // half period = (8+4)/2 = 6
+        ctx.beginPath();
+        ctx.moveTo(cx - HEX_SIZE, sy);
+        ctx.lineTo(cx + HEX_SIZE, sy);
+        ctx.stroke();
+        lineIdx++;
+      }
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
+      ctx.restore();
+    }
+  }
+
+  // bridge plank overlays
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (map[r][c] !== 'bridge') continue;
+      const { x, y } = hexToPixel(c, r);
+      const cx = x - camX, cy = y - camY;
+      if (cx < -HW*2 || cy < -HEX_SIZE*2 || cx > canvas.width-UI_W+HW*2 || cy > canvas.height+HEX_SIZE*2) continue;
+      ctx.save();
+      ctx.strokeStyle = '#3E2008';
+      ctx.lineWidth = 2;
+      // railings
+      for (const dy of [-HEX_SIZE*0.28, HEX_SIZE*0.28]) {
+        ctx.beginPath();
+        ctx.moveTo(cx - HEX_SIZE*0.62, cy + dy);
+        ctx.lineTo(cx + HEX_SIZE*0.62, cy + dy);
+        ctx.stroke();
+      }
+      // planks
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#6B3E10';
+      for (let px = -0.5; px <= 0.5; px += 0.25) {
+        const bx = cx + px * HEX_SIZE;
+        ctx.beginPath();
+        ctx.moveTo(bx, cy - HEX_SIZE*0.28);
+        ctx.lineTo(bx, cy + HEX_SIZE*0.28);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  // control zone overlay — enterable cells
+  const zColor  = zoneOwner===0 ? 'rgba(90,180,255,0.38)' : zoneOwner===1 ? 'rgba(255,80,80,0.38)' : 'rgba(255,255,255,0.28)';
+  const zStroke = zoneOwner===0 ? '#79c0ff'               : zoneOwner===1 ? '#f85149'               : '#aaaaaa';
+  for (const z of ZONE_CELLS) {
+    drawHex(z.col, z.row, zColor, null);
+    const { x, y } = hexToPixel(z.col, z.row);
+    const cx = x - camX, cy = y - camY;
+    ctx.save();
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = Math.PI/180*(60*i-30);
+      ctx.lineTo(cx + (HEX_SIZE-1)*Math.cos(a), cy + (HEX_SIZE-1)*Math.sin(a));
+    }
+    ctx.closePath();
+    ctx.strokeStyle = zStroke; ctx.lineWidth = 2; ctx.stroke();
+    ctx.restore();
+  }
+  // core cell — impassable obelisk
+  {
+    const { x, y } = hexToPixel(ZONE_CORE.col, ZONE_CORE.row);
+    const cx = x - camX, cy = y - camY;
+    drawHex(ZONE_CORE.col, ZONE_CORE.row, 'rgba(30,30,40,0.82)', null);
+    ctx.save();
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = Math.PI/180*(60*i-30);
+      ctx.lineTo(cx + (HEX_SIZE-1)*Math.cos(a), cy + (HEX_SIZE-1)*Math.sin(a));
+    }
+    ctx.closePath();
+    ctx.strokeStyle = zStroke; ctx.lineWidth = 2.5; ctx.stroke();
+    // obelisk icon
+    ctx.fillStyle = zStroke;
+    ctx.font = `bold ${Math.round(HEX_SIZE*0.72)}px Arial`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🏛', cx, cy);
+    ctx.restore();
+  }
+
+  // highlights
+  reachableHexes.forEach(h  => drawHex(h.col,h.row,COLOR_REACHABLE,null));
+  attackableHexes.forEach(h => drawHex(h.col,h.row,COLOR_ATTACKABLE,null));
+  if (selectedUnit) drawHex(selectedUnit.col,selectedUnit.row,COLOR_SELECTED,null);
+
+  // units
+  units.forEach(drawUnit);
+}
+
+// ============================================================
+//  INTERACTION
+// ============================================================
+function canvasClick(e) {
+  if (isDragging || aiThinking || currentPlayer!==0) return;
+  const rect = canvas.getBoundingClientRect();
+  const { col, row } = pixelToHex(e.clientX - rect.left + camX, e.clientY - rect.top + camY);
+  if (col<0||col>=COLS||row<0||row>=ROWS) return;
+
+  if (gamePhase==='select') {
+    const u = unitAt(col, row);
+    if (u && u.owner===0 && !(u.moved&&u.attacked)) selectUnit(u);
+
+  } else if (gamePhase==='move') {
+    const enemy = units.find(u=>u.owner===1&&u.col===col&&u.row===row);
+    const own   = units.find(u=>u.owner===0&&u.col===col&&u.row===row);
+    const canAttack = attackableHexes.some(h=>h.col===col&&h.row===row);
+    const canMove   = reachableHexes.some(h=>h.col===col&&h.row===row);
+
+    if (enemy && canAttack) {
+      doCombat(selectedUnit, enemy);
+      deselect(); redraw(); updateUI(); checkEndCondition();
+    } else if (canMove) {
+      selectedUnit.col = col; selectedUnit.row = row; selectedUnit.moved = true;
+      reachableHexes = [];
+      attackableHexes = getAttackable(selectedUnit);
+      if (selectedUnit.attacked || attackableHexes.length===0) { deselect(); }
+      else { gamePhase = 'attack'; }
+      redraw(); updateUI();
+    } else if (own && own!==selectedUnit) {
+      selectUnit(own);
+    } else {
+      deselect();
+    }
+
+  } else if (gamePhase==='attack') {
+    const enemy = units.find(u=>u.owner===1&&u.col===col&&u.row===row);
+    if (enemy && attackableHexes.some(h=>h.col===col&&h.row===row)) {
+      doCombat(selectedUnit, enemy);
+      checkEndCondition();
+    } else {
+      if (selectedUnit) { selectedUnit.attacked = true; }
+    }
+    deselect(); redraw(); updateUI();
+  }
+}
+
+function selectUnit(u) {
+  selectedUnit = u;
+  gamePhase = u.moved ? 'attack' : 'move';
+  reachableHexes  = u.moved    ? [] : getReachable(u);
+  attackableHexes = u.attacked ? [] : getAttackable(u);
+  redraw(); updateUI();
+}
+
+function deselect() {
+  selectedUnit = null; reachableHexes = []; attackableHexes = []; gamePhase = 'select';
+}
+
+// ============================================================
+//  DRAG / SCROLL
+// ============================================================
+function startDrag(e)  { isDragging = false; dragStart={x:e.clientX,y:e.clientY}; camStart={x:camX,y:camY}; }
+function onMouseMove(e) {
+  if (!dragStart) return;
+  const dx = e.clientX-dragStart.x, dy = e.clientY-dragStart.y;
+  if (Math.abs(dx)+Math.abs(dy) > 5) {
+    isDragging = true;
+    const maxX = Math.max(0, HW*(COLS+0.5)-(canvas.width-UI_W));
+    const maxY = Math.max(0, VERT_SPACING*(ROWS-1)+HEX_SIZE*2-canvas.height);
+    camX = Math.max(-HW, Math.min(maxX, camStart.x-dx));
+    camY = Math.max(-HEX_SIZE, Math.min(maxY, camStart.y-dy));
+    redraw();
+  }
+}
+function stopDrag()    { dragStart = null; setTimeout(()=>{ isDragging=false; }, 10); }
+
+// ============================================================
+//  UI
+// ============================================================
+function updateUI() {
+  document.getElementById('countPlayer').textContent = units.filter(u=>u.owner===0).length;
+  document.getElementById('countAI').textContent     = units.filter(u=>u.owner===1).length;
+  document.getElementById('zoneScorePlayer').textContent = zoneScore[0];
+  document.getElementById('zoneScoreAI').textContent     = zoneScore[1];
+  document.getElementById('zoneOwnerLabel').textContent  =
+    zoneOwner===0 ? '🔵 Spieler' : zoneOwner===1 ? '🔴 KI' : '⬜ Neutral';
+  document.getElementById('zoneBarPlayer').style.width = (zoneScore[0]/ZONE_WIN_SCORE*100)+'%';
+  document.getElementById('zoneBarAI').style.width     = (zoneScore[1]/ZONE_WIN_SCORE*100)+'%';
+
+  const badge = document.getElementById('turnBadge');
+  badge.textContent = currentPlayer===0 ? `Zug ${turnCount} — Spieler` : `Zug ${turnCount} — KI`;
+  badge.className   = currentPlayer===0 ? 'player' : 'ai';
+
+  const phases = { select:'Einheit auswählen', move:'Bewegen oder Angreifen', attack:'Angriffsziel wählen (Esc=skip)' };
+  document.getElementById('phaseCard').textContent = aiThinking ? 'KI am Zug…' : (phases[gamePhase]||'');
+
+  document.getElementById('btnEndTurn').disabled = currentPlayer!==0 || aiThinking;
+
+  if (selectedUnit) {
+    const def = unitDef(selectedUnit);
+    document.getElementById('unitCard').style.display = 'block';
+    document.getElementById('unitName').textContent   = def.label;
+    const pct = selectedUnit.hp / selectedUnit.maxHp;
+    document.getElementById('hpFill').style.width  = (pct*100)+'%';
+    document.getElementById('hpFill').style.background = pct>.5?'#3fb950':pct>.25?'#d29922':'#f85149';
+    document.getElementById('statHp').textContent  = `${selectedUnit.hp}/${selectedUnit.maxHp}`;
+    const expAtk = Math.floor(selectedUnit.atkBonus || 0);
+    document.getElementById('statAtk').textContent = expAtk > 0 ? `${def.atk} (+${expAtk})` : def.atk;
+    document.getElementById('statDef').textContent = def.def;
+    document.getElementById('statMov').textContent = def.mov;
+    document.getElementById('statRng').textContent = def.range===1?'Nahkampf':`${def.range} Felder`;
+    const flags = [];
+    if (selectedUnit.moved)   flags.push('Bewegt');
+    if (selectedUnit.attacked) flags.push('Angegriffen');
+    document.getElementById('unitStatus').textContent = flags.join(' · ') || (selectedUnit.owner===0?'Bereit':'');
+  } else {
+    document.getElementById('unitCard').style.display = 'none';
+  }
+}
+
+const maxLog = 50;
+function addLog(msg, type='') {
+  const box = document.getElementById('logBox');
+  const el  = document.createElement('div');
+  if (type) el.className = 'log-'+type;
+  el.textContent = msg;
+  box.prepend(el);
+  while (box.children.length > maxLog) box.removeChild(box.lastChild);
+}
+
+function showMessage(title, text) {
+  document.getElementById('msgTitle').textContent = title;
+  document.getElementById('msgText').textContent  = text;
+  document.getElementById('msgOverlay').style.display = 'flex';
+}
+
+// ============================================================
+//  INIT
+// ============================================================
+function initGame() {
+  document.getElementById('msgOverlay').style.display = 'none';
+  document.getElementById('logBox').innerHTML = '';
+  currentPlayer=0; turnCount=1; gamePhase='select'; aiThinking=false;
+  selectedUnit=null; reachableHexes=[]; attackableHexes=[];
+  zoneOwner=-1; zoneScore=[0,0];
+
+  generateMap();
+  while (!balanceWithSwamp()) {
+    generateMap(); // regenerate until both sides have a valid path to the zone
+  }
+  placeStartingUnits();
+
+  // center camera on player
+  const pu = units.filter(u=>u.owner===0);
+  if (pu.length) {
+    const mid = hexToPixel(pu[Math.floor(pu.length/2)].col, pu[Math.floor(pu.length/2)].row);
+    camX = Math.max(-HW, mid.x - (canvas.width-UI_W)/2);
+    camY = Math.max(-HEX_SIZE, mid.y - canvas.height/2);
+  }
+
+  addLog('— Zug 1: Spieler —', 'turn');
+  redraw(); updateUI();
+}
+
+// ============================================================
+//  KEYBOARD
+// ============================================================
+document.addEventListener('keydown', e => {
+  const step = 60;
+  const maxX = Math.max(0, HW*(COLS+0.5)-(canvas.width-UI_W));
+  const maxY = Math.max(0, VERT_SPACING*(ROWS-1)+HEX_SIZE*2-canvas.height);
+  if (e.key==='ArrowLeft')  { camX=Math.max(0,camX-step); redraw(); }
+  if (e.key==='ArrowRight') { camX=Math.min(maxX,camX+step); redraw(); }
+  if (e.key==='ArrowUp')    { camY=Math.max(0,camY-step); redraw(); }
+  if (e.key==='ArrowDown')  { camY=Math.min(maxY,camY+step); redraw(); }
+  if (e.key==='Escape')     { deselect(); redraw(); updateUI(); }
+});
+
+// ============================================================
+//  BOOTSTRAP
+// ============================================================
+window.addEventListener('load', () => {
+  canvas = document.getElementById('gameCanvas');
+  ctx    = canvas.getContext('2d');
+
+  canvas.addEventListener('click',        canvasClick);
+  canvas.addEventListener('mousedown',    startDrag);
+  canvas.addEventListener('mousemove',    onMouseMove);
+  canvas.addEventListener('mouseup',      stopDrag);
+  canvas.addEventListener('mouseleave',   stopDrag);
+  canvas.addEventListener('contextmenu',  e => { e.preventDefault(); deselect(); redraw(); updateUI(); });
+
+  window.addEventListener('resize', () => { canvas.width=window.innerWidth; canvas.height=window.innerHeight; redraw(); });
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  initGame();
+});
+
+document.getElementById('btnEndTurn').addEventListener('click', () => {
+  if (currentPlayer!==0||aiThinking) return;
+  deselect();
+  currentPlayer=1;
+  addLog(`— Zug ${turnCount}: KI —`, 'turn');
+  updateUI(); redraw();
+  setTimeout(doAITurn, 350);
+});
+
+document.getElementById('btnNewGame').addEventListener('click', initGame);
+</script>
+</body>
+</html>
