@@ -59,7 +59,7 @@
 </head>
 <body>
 <canvas id="gameCanvas"></canvas>
-<div id="ui">
+<div id="ui" style="overflow-y: scroll;">
   <h1>Hex Strategy</h1>
   <div id="turnBadge" class="player">Zug 1 — Spieler</div>
   <div class="card phase-indicator" id="phaseCard">Einheit auswählen</div>
@@ -140,6 +140,12 @@
     Rechtsklick / Esc: Abwählen<br>
     Pfeiltasten / Maus ziehen: Karte scrollen
   </p>
+</div>
+<div id="mapContainer" style="position:fixed;bottom:0;right:0;width:240px;overflow:hidden">
+  <div class="card" style="padding:6px">
+    <h3 style="margin-bottom:4px">Minimap</h3>
+    <canvas id="minimap" style="width:100%;display:block;border-radius:4px;border:1px solid #30363d"></canvas>
+  </div>
   <button id="btnNewGame">Neues Spiel</button>
 </div>
 
@@ -1148,6 +1154,41 @@ function redraw() {
   // units
   units.forEach(drawUnit);
   ctx.restore();
+
+  // --- minimap ---
+  const mm = document.getElementById('minimap');
+  const mmW = mm.offsetWidth || 220;
+  const mmH = Math.round(mmW * (ROWS * VERT_SPACING) / (HW * (COLS + 0.5)));
+  if (mm.width !== mmW || mm.height !== mmH) { mm.width = mmW; mm.height = mmH; }
+  const mCtx = mm.getContext('2d');
+  const scaleX = mmW / (HW * (COLS + 0.5));
+  const scaleY = mmH / (ROWS * VERT_SPACING);
+  mCtx.clearRect(0, 0, mmW, mmH);
+  // terrain
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const { x, y } = hexToPixel(c, r);
+      mCtx.fillStyle = TERRAIN[map[r][c]].color;
+      mCtx.fillRect(Math.round(x * scaleX), Math.round(y * scaleY),
+                    Math.max(1, Math.ceil(HW * scaleX)),
+                    Math.max(1, Math.ceil(VERT_SPACING * scaleY * 1.5)));
+    }
+  }
+  // units
+  units.forEach(u => {
+    const { x, y } = hexToPixel(u.col, u.row);
+    mCtx.fillStyle = u.owner === 0 ? '#79c0ff' : '#f85149';
+    const pr = Math.max(2, Math.round(HW * scaleX * 0.55));
+    mCtx.beginPath();
+    mCtx.arc(Math.round((x + HW * 0.5) * scaleX), Math.round((y + HEX_SIZE * 0.5) * scaleY), pr, 0, Math.PI * 2);
+    mCtx.fill();
+  });
+  // viewport rectangle
+  mCtx.strokeStyle = 'rgba(255,255,255,0.75)';
+  mCtx.lineWidth = 1.5;
+  mCtx.strokeRect(camX * scaleX, camY * scaleY,
+                  (canvas.width - UI_W) / zoom * scaleX,
+                  canvas.height / zoom * scaleY);
 }
 
 // ============================================================
@@ -1438,6 +1479,52 @@ document.getElementById('btnEndTurn').addEventListener('click', () => {
 });
 
 document.getElementById('btnNewGame').addEventListener('click', initGame);
+
+// Minimap navigation
+(function() {
+  let mmDragging = false;
+
+  function minimapNav(e) {
+    const mm = document.getElementById('minimap');
+    const rect = mm.getBoundingClientRect();
+    const mmW = mm.width, mmH = mm.height;
+    const scaleX = mmW / (HW * (COLS + 0.5));
+    const scaleY = mmH / (ROWS * VERT_SPACING);
+    // world coords of clicked point
+    const worldX = (e.clientX - rect.left) / (rect.width  / mmW) / scaleX;
+    const worldY = (e.clientY - rect.top)  / (rect.height / mmH) / scaleY;
+    // center that world point in the main viewport
+    const vpW = (canvas.width  - UI_W) / zoom;
+    const vpH =  canvas.height / zoom;
+    const maxX = Math.max(-HW, HW*(COLS+0.5) - vpW);
+    const maxY = Math.max(-HEX_SIZE, ROWS*VERT_SPACING - vpH);
+    camX = Math.max(-HW, Math.min(maxX, worldX - vpW / 2));
+    camY = Math.max(-HEX_SIZE, Math.min(maxY, worldY - vpH / 2));
+    redraw();
+  }
+
+  const mm = document.getElementById('minimap');
+  mm.addEventListener('mousedown', e => {
+    mmDragging = true;
+    minimapNav(e);
+  });
+  window.addEventListener('mousemove', e => {
+    if (mmDragging) minimapNav(e);
+  });
+  window.addEventListener('mouseup', () => { mmDragging = false; });
+
+  // touch support for minimap
+  mm.addEventListener('touchstart', e => {
+    e.preventDefault();
+    mmDragging = true;
+    minimapNav(e.touches[0]);
+  }, { passive: false });
+  mm.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (mmDragging) minimapNav(e.touches[0]);
+  }, { passive: false });
+  mm.addEventListener('touchend', () => { mmDragging = false; });
+})();
 </script>
 </body>
 </html>
