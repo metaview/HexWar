@@ -1163,7 +1163,9 @@ function canvasClick(e) {
     const canAttack = attackableHexes.some(h=>h.col===col&&h.row===row);
     const canMove   = reachableHexes.some(h=>h.col===col&&h.row===row);
 
-    if (enemy && canAttack) {
+    if (own && own===selectedUnit) {
+      deselect(); redraw(); updateUI(); // klick auf eigene gewählte Einheit → abwählen
+    } else if (enemy && canAttack) {
       doCombat(selectedUnit, enemy);
       deselect(); redraw(); updateUI(); checkEndCondition();
     } else if (canMove) {
@@ -1181,13 +1183,17 @@ function canvasClick(e) {
 
   } else if (gamePhase==='attack') {
     const enemy = units.find(u=>u.owner===1&&u.col===col&&u.row===row);
-    if (enemy && attackableHexes.some(h=>h.col===col&&h.row===row)) {
+    const own   = units.find(u=>u.owner===0&&u.col===col&&u.row===row);
+    if (own && own===selectedUnit) {
+      deselect(); redraw(); updateUI(); // klick auf eigene gewählte Einheit → abwählen
+    } else if (enemy && attackableHexes.some(h=>h.col===col&&h.row===row)) {
       doCombat(selectedUnit, enemy);
       checkEndCondition();
+      deselect(); redraw(); updateUI();
     } else {
       if (selectedUnit) { selectedUnit.attacked = true; }
+      deselect(); redraw(); updateUI();
     }
-    deselect(); redraw(); updateUI();
   }
 }
 
@@ -1336,6 +1342,45 @@ window.addEventListener('load', () => {
   canvas.addEventListener('mouseup',      stopDrag);
   canvas.addEventListener('mouseleave',   stopDrag);
   canvas.addEventListener('contextmenu',  e => { e.preventDefault(); deselect(); redraw(); updateUI(); });
+
+  // Touch support for panning and tapping
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const t = e.touches[0];
+    isDragging = false;
+    dragStart = { x: t.clientX, y: t.clientY };
+    camStart  = { x: camX, y: camY };
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (!dragStart) return;
+    const t = e.touches[0];
+    const dx = dragStart.x - t.clientX;
+    const dy = dragStart.y - t.clientY;
+    if (Math.abs(dx) + Math.abs(dy) > 5) {
+      isDragging = true;
+      const maxX = Math.max(0, HW*(COLS+0.5)-(canvas.width-UI_W));
+      const maxY = Math.max(0, VERT_SPACING*(ROWS-1)+HEX_SIZE*2-canvas.height);
+      camX = Math.max(-HW, Math.min(maxX, camStart.x + dx));
+      camY = Math.max(-HEX_SIZE, Math.min(maxY, camStart.y + dy));
+      redraw();
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    if (!isDragging && dragStart) {
+      // treat as tap → simulate click
+      const t = e.changedTouches[0];
+      const rect = canvas.getBoundingClientRect();
+      const fake = { clientX: t.clientX, clientY: t.clientY,
+                     offsetX: t.clientX - rect.left, offsetY: t.clientY - rect.top };
+      canvasClick(fake);
+    }
+    dragStart = null;
+    setTimeout(() => { isDragging = false; }, 10);
+  }, { passive: false });
 
   window.addEventListener('resize', () => { canvas.width=window.innerWidth; canvas.height=window.innerHeight; redraw(); });
   canvas.width  = window.innerWidth;
