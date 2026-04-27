@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>Hex Strategy</title>
+  <title>Hex War</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #0d1117; color: #e6edf3; font-family: 'Segoe UI', Arial, sans-serif; overflow: hidden; user-select: none; }
@@ -77,7 +77,7 @@
 <canvas id="gameCanvas"></canvas>
 <div id="ui">
   <div id="ui-top">
-    <h1>Hex Strategy</h1>
+    <h1>Hex War</h1>
     <div id="turnBadge" class="player">Zug 1 — Spieler</div>
     <div class="card phase-indicator" id="phaseCard">Einheit auswählen</div>
 
@@ -158,7 +158,9 @@
     Rechtsklick / Esc: Abwählen<br>
     Pfeiltasten / Maus ziehen: Karte scrollen
   </p>
+  <button id="btnToggleDebugPaths">Debug-Pfade anzeigen</button>
   </div><!-- end ui-scroll -->
+
   <div id="ui-bottom">
     <div class="card" style="padding:6px">
       <h3 style="margin-bottom:4px">Minimap</h3>
@@ -185,7 +187,6 @@ const HEX_SIZE = 28;
 const HW = Math.sqrt(3) * HEX_SIZE;    // horizontal spacing
 const VERT_SPACING = HEX_SIZE * 1.5;   // vertical spacing
 const UI_W = 240;
-const SHOW_DEBUG_PATHS = false; // toggle visualisation of balance paths
 
 const COLOR_REACHABLE  = 'rgba(100,180,255,0.35)';
 const COLOR_ATTACKABLE = 'rgba(255,80,80,0.42)';
@@ -198,6 +199,13 @@ const ZONE_CELLS = [
   { col: _ZC-1, row: _ZR-1 }, { col: _ZC, row: _ZR-1 },          // row -1: 2 cells
   { col: _ZC-1, row: _ZR   }, { col: _ZC+1, row: _ZR   },         // row  0: flanks of 3
   { col: _ZC-1, row: _ZR+1 }, { col: _ZC,   row: _ZR+1 },         // row +1: 2 cells
+];
+const ZONE_CELLS_AROUND = [
+  { col: _ZC-1, row: _ZR-2 }, { col: _ZC,   row: _ZR-2 }, { col: _ZC+1, row: _ZR-2 },         // around row -2
+  { col: _ZC-2, row: _ZR-1 }, { col: _ZC+1, row: _ZR-1 },         // around row -1
+  { col: _ZC-2, row: _ZR   }, { col: _ZC+2, row: _ZR   },         // around row 0
+  { col: _ZC-2, row: _ZR+1 }, { col: _ZC+1, row: _ZR+1 },         // around row +1
+  { col: _ZC-1, row: _ZR+2 }, { col: _ZC,   row: _ZR+2 }, { col: _ZC+1, row: _ZR+2 },         // around row +2
 ];
 
 // ============================================================
@@ -247,10 +255,13 @@ let isDragging = false, dragStart = null, camStart = null;
 let selectedUnit = null;
 let reachableHexes = [];
 let attackableHexes = [];
+let combatFlashes = []; // [{col,row,symbol,endTime}]
 let currentPlayer = 0;   // 0=human  1=AI
 let turnCount = 1;
 let gamePhase = 'select'; // select | move | attack
 let aiThinking = false;
+let showDebugPaths = false; // toggle visualisation of balance paths
+
 
 // Control zone state
 let zoneOwner = -1;      // -1=neutral, 0=player, 1=AI
@@ -450,6 +461,8 @@ function generateMap() {
   // Force zone cells to grass AFTER rivers/bridges so they are never overwritten
   for (const z of ZONE_CELLS) map[z.row][z.col] = 'grass';
   map[ZONE_CORE.row][ZONE_CORE.col] = 'grass';
+  // Force cells around to zone cells to sand AFTER rivers/bridges so they are never overwritten
+  for (const z of ZONE_CELLS_AROUND) map[z.row][z.col] = 'sand';
 
   // Force army starting zone to grass AFTER rivers/bridges so they are never overwritten
   for (let r = 1; r < 4; r++) {
@@ -660,6 +673,29 @@ function getAttackable(unit) {
 // ============================================================
 //  COMBAT
 // ============================================================
+function addCombatFlash(col, row, symbol, duration = 700) {
+  combatFlashes.push({ col, row, symbol, endTime: Date.now() + duration });
+}
+
+// Roll combat variance: returns { roll, note }
+// 10% critical (+50%), 10% glancing (half), 80% normal (±2 jitter)
+function rollCombatDice(base) {
+  const r = rng();
+  if (r < 0.10) {
+    // critical hit
+    const val = Math.max(1, Math.round(base * 1.5));
+    return { val, note: ' 💥Krit!' };
+  } else if (r < 0.20) {
+    // glancing blow
+    const val = Math.max(1, Math.round(base * 0.5));
+    return { val, note: ' 💨Abgewehrt' };
+  } else {
+    // normal: flat jitter ±2
+    const val = Math.max(1, base + rngRange(-2, 2));
+    return { val, note: '' };
+  }
+}
+
 function doCombat(attacker, defender) {
   if (!units.includes(attacker) || !units.includes(defender)) return;
   if (inZone(attacker.col, attacker.row)) return; // zone units cannot attack
@@ -671,22 +707,26 @@ function doCombat(attacker, defender) {
   const defDef = inZone(defender.col, defender.row) ? Math.floor(dDef.def / 2) : dDef.def;
   const typeBonus = (TYPE_ADVANTAGE[attacker.type] || {})[defender.type] || 0;
   const expAtk = Math.floor(attacker.atkBonus);
-  let dmg = Math.max(1, aDef.atk + expAtk + typeBonus - defDef - tDef.defBonus + rngRange(-1,1));
+  const baseDmg = Math.max(1, aDef.atk + expAtk + typeBonus - defDef - tDef.defBonus);
+  const { val: dmg, note: diceNote } = rollCombatDice(baseDmg);
   defender.hp -= dmg;
   attacker.atkBonus += dmg / 10;
+  addCombatFlash(defender.col, defender.row, '⚔️');
   const bonusNote = typeBonus > 0 ? ` ⚡+${typeBonus}` : '';
   const expNote = expAtk > 0 ? ` 📈+${expAtk}` : '';
-  addLog(`${aDef.label} → ${dDef.label}: ${dmg} Schaden${bonusNote}${expNote}${inZone(defender.col,defender.row)?' (Zone!)':''}`, 'combat');
+  addLog(`${aDef.label} → ${dDef.label}: ${dmg} Schaden${bonusNote}${expNote}${diceNote}${inZone(defender.col,defender.row)?' (Zone!)':''}`, 'combat');
 
   if (!isRanged && units.includes(attacker)) {
     const tAtk = TERRAIN[map[attacker.row][attacker.col]];
     const atkDef = inZone(attacker.col, attacker.row) ? Math.floor(aDef.def / 2) : aDef.def;
     // defender counter-attack type bonus (halved, rounded down)
     const counterBonus = Math.floor(((TYPE_ADVANTAGE[defender.type] || {})[attacker.type] || 0) / 2);
-    let cdmg = Math.max(1, dDef.atk + counterBonus - atkDef - tAtk.defBonus + rngRange(-1,1));
+    const baseCdmg = Math.max(1, dDef.atk + counterBonus - atkDef - tAtk.defBonus);
+    const { val: cdmg, note: cDiceNote } = rollCombatDice(baseCdmg);
     attacker.hp -= cdmg;
+    addCombatFlash(attacker.col, attacker.row, '🛡️');
     const cBonusNote = counterBonus > 0 ? ` ⚡+${counterBonus}` : '';
-    addLog(`↩ Gegenschaden: ${cdmg}${cBonusNote}`, 'combat');
+    addLog(`↩ Gegenschaden: ${cdmg}${cBonusNote}${cDiceNote}`, 'combat');
   } else if (isRanged && units.includes(attacker)) {
     // ranged attacker: defender can counter only if attacker is within defender's range
     const dist = hexDistance(attacker.col, attacker.row, defender.col, defender.row);
@@ -694,10 +734,12 @@ function doCombat(attacker, defender) {
       const tAtk = TERRAIN[map[attacker.row][attacker.col]];
       const atkDef = inZone(attacker.col, attacker.row) ? Math.floor(aDef.def / 2) : aDef.def;
       const counterBonus = Math.floor(((TYPE_ADVANTAGE[defender.type] || {})[attacker.type] || 0) / 2);
-      let cdmg = Math.max(1, dDef.atk + counterBonus - atkDef - tAtk.defBonus + rngRange(-1,1));
+      const baseCdmg = Math.max(1, dDef.atk + counterBonus - atkDef - tAtk.defBonus);
+      const { val: cdmg, note: cDiceNote } = rollCombatDice(baseCdmg);
       attacker.hp -= cdmg;
+      addCombatFlash(attacker.col, attacker.row, '🛡️');
       const cBonusNote = counterBonus > 0 ? ` ⚡+${counterBonus}` : '';
-      addLog(`↩ Gegenschaden: ${cdmg}${cBonusNote}`, 'combat');
+      addLog(`↩ Gegenschaden: ${cdmg}${cBonusNote}${cDiceNote}`, 'combat');
     }
   }
 
@@ -738,6 +780,37 @@ function pathDistance(c1, r1, c2, r2) {
 // ============================================================
 //  AI
 // ============================================================
+// Returns array of {col,row} cells from (c1,r1) to (c2,r2), respecting terrain
+function findPathTo(c1, r1, c2, r2) {
+  const prev = new Map();
+  const dist = new Map(); dist.set(`${c1},${r1}`, 0);
+  const queue = [{ col:c1, row:r1, d:0 }];
+  while (queue.length) {
+    queue.sort((a,b)=>a.d-b.d);
+    const cur = queue.shift();
+    const curD = dist.get(`${cur.col},${cur.row}`);
+    if (cur.col===c2 && cur.row===r2) break;
+    for (const nb of hexNeighbors(cur.col, cur.row)) {
+      const key = `${nb.col},${nb.row}`;
+      const t = TERRAIN[map[nb.row][nb.col]];
+      if (!t.passable) continue;
+      if (inZoneCore(nb.col, nb.row)) continue;
+      const cost = map[nb.row][nb.col]==='swamp' ? 10 : t.moveCost < 999 ? t.moveCost : 999;
+      const nd = curD + cost;
+      if (!dist.has(key) || dist.get(key) > nd) {
+        dist.set(key, nd); prev.set(key, { col:cur.col, row:cur.row }); queue.push({ col:nb.col, row:nb.row, d:nd });
+      }
+    }
+  }
+  const path = [];
+  let key = `${c2},${r2}`;
+  while (prev.has(key)) {
+    const [cc, rr] = key.split(',').map(Number);
+    path.unshift({ col:cc, row:rr });
+    const p = prev.get(key); key = `${p.col},${p.row}`;
+  }
+  return path;
+}
 function centerOnCell(col, row) {
   const { x, y } = hexToPixel(col, row);
   const vpW = (canvas.width - UI_W) / zoom;
@@ -748,79 +821,181 @@ function centerOnCell(col, row) {
   camY = Math.max(-HEX_SIZE, Math.min(maxY, y - vpH/2));
 }
 
+// ============================================================
+//  AI COMBAT SCORING
+// ============================================================
+// Returns expected outcome of unit attacking enemy from (fromCol, fromRow).
+// Returns null if enemy is out of range from that position.
+function aiScoreAttack(unit, fromCol, fromRow, enemy) {
+  const aDef = unitDef(unit), dDef = unitDef(enemy);
+  const dist = hexDistance(fromCol, fromRow, enemy.col, enemy.row);
+  if (dist > aDef.range) return null;
+  if (inZone(fromCol, fromRow)) return null; // can't attack from zone
+
+  const typeBonus    = (TYPE_ADVANTAGE[unit.type]  || {})[enemy.type]  || 0;
+  const counterBonus = Math.floor(((TYPE_ADVANTAGE[enemy.type] || {})[unit.type] || 0) / 2);
+  const expAtk       = Math.floor(unit.atkBonus);
+
+  const defStat  = inZone(enemy.col, enemy.row)  ? Math.floor(dDef.def / 2) : dDef.def;
+  const myStat   = inZone(fromCol,   fromRow)    ? Math.floor(aDef.def / 2) : aDef.def;
+  const tDef     = TERRAIN[map[enemy.row][enemy.col]];
+  const tAtk     = TERRAIN[map[fromRow][fromCol]];
+
+  const dmgDealt = Math.max(1, aDef.atk + expAtk + typeBonus  - defStat - tDef.defBonus);
+
+  // counter-attack: always for melee, only if in range for ranged
+  let dmgReceived = 0;
+  const canCounter = aDef.range === 1 || dist <= dDef.range;
+  if (canCounter) {
+    dmgReceived = Math.max(1, dDef.atk + counterBonus - myStat - tAtk.defBonus);
+  }
+
+  // Bonuses / penalties for decisive results
+  const killBonus  = dmgDealt    >= enemy.hp ? enemy.hp  * 2 : 0;
+  const deathMalus = dmgReceived >= unit.hp  ? unit.hp   * 3 : 0; // dying is bad
+
+  const score = dmgDealt + killBonus - dmgReceived * 0.6 - deathMalus;
+  return { score, dmgDealt, dmgReceived };
+}
+
 function doAITurn() {
   aiThinking = true;
   addLog('— KI am Zug —', 'turn');
-  const savedCam = { x: camX, y: camY };  // remember player's view
+  const savedCam = { x: camX, y: camY };
   const aiUnits = units.filter(u => u.owner===1);
-  let delay = 0;
 
-  for (const unit of aiUnits) {
-    const d = delay;
-    setTimeout(() => {
-      if (!units.includes(unit)) { checkEndCondition(); return; }
-      centerOnCell(unit.col, unit.row); // pan to acting unit
-      unit.moved = false; unit.attacked = false;
-      const enemies = units.filter(u => u.owner===0);
-      if (!enemies.length) return;
-      enemies.sort((a,b) => hexDistance(unit.col,unit.row,a.col,a.row) - hexDistance(unit.col,unit.row,b.col,b.row));
-      const target = enemies[0];
-      const def = unitDef(unit);
+  function processUnit(idx) {
+    if (idx >= aiUnits.length) {
+      setTimeout(() => {
+        evaluateZone();
+        if (checkEndCondition()) return;
+        aiThinking = false;
+        currentPlayer = 0;
+        turnCount++;
+        units.forEach(u => { u.moved = false; u.attacked = false; });
+        selectedUnit = null; reachableHexes = []; attackableHexes = [];
+        gamePhase = 'select';
+        addLog(`— Zug ${turnCount}: Spieler —`, 'turn');
+        camX = savedCam.x; camY = savedCam.y;
+        redraw(); updateUI();
+      }, 300);
+      return;
+    }
 
-      // attack before move if in range (zone units cannot attack)
-      if (!inZone(unit.col, unit.row) && hexDistance(unit.col,unit.row,target.col,target.row) <= def.range) {
-        doCombat(unit, target); redraw(); updateUI(); checkEndCondition(); return;
+    const unit = aiUnits[idx];
+    if (!units.includes(unit)) { processUnit(idx + 1); return; }
+
+    unit.moved = false; unit.attacked = false;
+    const enemies = units.filter(u => u.owner === 0);
+    if (!enemies.length) { processUnit(idx + 1); return; }
+
+    const def = unitDef(unit);
+    const reachable = getReachable(unit);
+
+    // ── Smart evaluation: score every (position × enemy) combination ──
+    // Include the unit's current position as a candidate (attack-in-place)
+    const candidates = [{ col: unit.col, row: unit.row }, ...reachable];
+    let bestScore = -Infinity, bestDest = null, bestTarget = null;
+
+    for (const pos of candidates) {
+      for (const enemy of enemies) {
+        const result = aiScoreAttack(unit, pos.col, pos.row, enemy);
+        if (result === null) continue;
+        if (result.score > bestScore) {
+          bestScore  = result.score;
+          bestDest   = pos;
+          bestTarget = enemy;
+        }
+      }
+    }
+
+    // ── Execute best attack plan ──
+    if (bestTarget !== null) {
+      const needMove = !(bestDest.col === unit.col && bestDest.row === unit.row);
+
+      function doAttack() {
+        if (!inZone(unit.col, unit.row) && units.includes(bestTarget)) {
+          centerOnCell(unit.col, unit.row);
+          doCombat(unit, bestTarget); redraw(); updateUI(); checkEndCondition();
+        } else {
+          unit.attacked = true;
+        }
+        setTimeout(() => processUnit(idx + 1), needMove ? 100 : 600);
       }
 
-      // move closer — use real path distance to navigate around rivers
-      const reachable = getReachable(unit);
-      if (reachable.length) {
-        // Primary goal: closest enemy (path-aware). Secondary: zone cells if no enemy nearby.
-        const zoneCells = ZONE_CELLS.filter(z => !unitAt(z.col, z.row));
-        const targetGoals = enemies.length
-          ? [{ col: target.col, row: target.row }]
-          : zoneCells;
-        // Also pull AI toward zone if no enemy is very close
-        const nearestEnemyPath = pathDistance(unit.col, unit.row, target.col, target.row);
-        const goals = nearestEnemyPath > 6 && zoneCells.length
-          ? [...zoneCells, { col: target.col, row: target.row }]
-          : [{ col: target.col, row: target.row }];
-
-        reachable.sort((a, b) => {
-          const bestA = Math.min(...goals.map(g => pathDistance(a.col, a.row, g.col, g.row)));
-          const bestB = Math.min(...goals.map(g => pathDistance(b.col, b.row, g.col, g.row)));
-          return bestA - bestB;
-        });
-        const best = reachable[0];
-        unit.col = best.col; unit.row = best.row;
-        unit.moved = true;
-      }
-
-      // attack after move (zone units cannot attack)
-      if (!inZone(unit.col, unit.row) && units.includes(target) && hexDistance(unit.col,unit.row,target.col,target.row) <= def.range) {
-        doCombat(unit, target);
+      if (needMove) {
+        const path = findPathTo(unit.col, unit.row, bestDest.col, bestDest.row);
+        let stepIdx = 0;
+        function animateStep() {
+          if (stepIdx < path.length) {
+            unit.col = path[stepIdx].col;
+            unit.row = path[stepIdx].row;
+            centerOnCell(unit.col, unit.row);
+            redraw(); updateUI();
+            stepIdx++;
+            setTimeout(animateStep, 100);
+          } else {
+            unit.moved = true;
+            doAttack();
+          }
+        }
+        animateStep();
       } else {
-        unit.moved = true; unit.attacked = true;
+        unit.moved = true;
+        doAttack();
       }
-      redraw(); updateUI(); checkEndCondition();
-    }, d);
-    delay += 380;
+      return;
+    }
+
+    // ── No attack possible from any reachable cell — approach zone / enemy ──
+    const nearestEnemy = enemies.slice().sort(
+      (a, b) => hexDistance(unit.col, unit.row, a.col, a.row) - hexDistance(unit.col, unit.row, b.col, b.row)
+    )[0];
+
+    if (!reachable.length) {
+      unit.moved = true; unit.attacked = true;
+      setTimeout(() => processUnit(idx + 1), 400);
+      return;
+    }
+
+    const zoneCells      = ZONE_CELLS.filter(z => !unitAt(z.col, z.row));
+    const nearEnemyDist  = pathDistance(unit.col, unit.row, nearestEnemy.col, nearestEnemy.row);
+    const goals = nearEnemyDist > 6 && zoneCells.length
+      ? [...zoneCells, { col: nearestEnemy.col, row: nearestEnemy.row }]
+      : [{ col: nearestEnemy.col, row: nearestEnemy.row }];
+
+    reachable.sort((a, b) => {
+      const bestA = Math.min(...goals.map(g => pathDistance(a.col, a.row, g.col, g.row)));
+      const bestB = Math.min(...goals.map(g => pathDistance(b.col, b.row, g.col, g.row)));
+      return bestA - bestB;
+    });
+    const dest = reachable[0];
+    const path = findPathTo(unit.col, unit.row, dest.col, dest.row);
+    let stepIdx = 0;
+
+    function animateStep() {
+      if (stepIdx < path.length) {
+        unit.col = path[stepIdx].col;
+        unit.row = path[stepIdx].row;
+        centerOnCell(unit.col, unit.row);
+        redraw(); updateUI();
+        stepIdx++;
+        setTimeout(animateStep, 100);
+      } else {
+        unit.moved = true;
+        if (!inZone(unit.col, unit.row) && units.includes(nearestEnemy) &&
+            hexDistance(unit.col, unit.row, nearestEnemy.col, nearestEnemy.row) <= def.range) {
+          doCombat(unit, nearestEnemy); redraw(); updateUI(); checkEndCondition();
+        } else {
+          unit.attacked = true;
+        }
+        setTimeout(() => processUnit(idx + 1), 100);
+      }
+    }
+    animateStep();
   }
 
-  setTimeout(() => {
-    evaluateZone();
-    if (checkEndCondition()) return;
-    aiThinking = false;
-    currentPlayer = 0;
-    turnCount++;
-    units.forEach(u => { u.moved = false; u.attacked = false; });
-    selectedUnit = null; reachableHexes = []; attackableHexes = [];
-    gamePhase = 'select';
-    addLog(`— Zug ${turnCount}: Spieler —`, 'turn');
-    // restore player's camera view
-    camX = savedCam.x; camY = savedCam.y;
-    redraw(); updateUI();
-  }, delay + 300);
+  processUnit(0);
 }
 
 // ============================================================
@@ -1033,7 +1208,7 @@ function redraw() {
   }
 
   // debug: balance paths
-  if (SHOW_DEBUG_PATHS && (debugPaths.player.length || debugPaths.ai.length)) {
+  if (showDebugPaths && (debugPaths.player.length || debugPaths.ai.length)) {
     const cavMov = UNIT_TYPES.cavalry.mov;
     const drawPath = (path, color, label) => {
       path.forEach(({ col, row, cost }) => {
@@ -1186,6 +1361,25 @@ function redraw() {
 
   // units
   units.forEach(drawUnit);
+
+  // combat flashes
+  const now = Date.now();
+  combatFlashes = combatFlashes.filter(f => f.endTime > now);
+  combatFlashes.forEach(f => {
+    const { x, y } = hexToPixel(f.col, f.row);
+    const cx = x - camX, cy = y - camY;
+    const age = 1 - (f.endTime - now) / 700; // 0..1
+    const scale = 1 + age * 0.6;             // grows slightly
+    const alpha = age < 0.7 ? 1 : 1 - (age - 0.7) / 0.3; // fade out last 30%
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = `bold ${Math.round(HEX_SIZE * 0.9 * scale)}px Arial`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(f.symbol, cx, cy - HEX_SIZE * 0.55 * scale);
+    ctx.restore();
+  });
+  if (combatFlashes.length > 0) setTimeout(redraw, 30);
+
   ctx.restore();
 
   // --- minimap ---
@@ -1296,7 +1490,7 @@ function startDrag(e)  { isDragging = false; dragStart={x:e.clientX,y:e.clientY}
 function onMouseMove(e) {
   if (!dragStart) return;
   const dx = e.clientX-dragStart.x, dy = e.clientY-dragStart.y;
-  if (Math.abs(dx)+Math.abs(dy) > 5) {
+  if (Math.abs(dx)+Math.abs(dy) > 10) { // threshold to prevent click misfires
     isDragging = true;
     const maxX = Math.max(-HW, HW*(COLS+0.5)-(canvas.width-UI_W)/zoom);
     const maxY = Math.max(-HEX_SIZE, VERT_SPACING*(ROWS-1)+HEX_SIZE*2-canvas.height/zoom);
@@ -1509,6 +1703,11 @@ document.getElementById('btnEndTurn').addEventListener('click', () => {
   addLog(`— Zug ${turnCount}: KI —`, 'turn');
   updateUI(); redraw();
   setTimeout(doAITurn, 350);
+});
+
+document.getElementById('btnToggleDebugPaths').addEventListener('click', () => {
+  showDebugPaths = !showDebugPaths;
+  redraw();
 });
 
 document.getElementById('btnNewGame').addEventListener('click', initGame);
