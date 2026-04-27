@@ -1,0 +1,1 @@
+try it at https://metaview.github.io/HexWar/
