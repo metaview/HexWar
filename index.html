@@ -81,17 +81,6 @@
     <div id="turnBadge" class="player">Zug 1 — Spieler</div>
     <div class="card phase-indicator" id="phaseCard">Einheit auswählen</div>
 
-    <div class="card" id="unitCard" style="display:none">
-      <h3 id="unitName">—</h3>
-      <div class="hp-bar"><div class="hp-fill" id="hpFill" style="width:100%"></div></div>
-      <div class="stat-row"><span class="stat-label">HP</span><span class="stat-val" id="statHp">—</span></div>
-      <div class="stat-row"><span class="stat-label">Angriff</span><span class="stat-val" id="statAtk">—</span></div>
-      <div class="stat-row"><span class="stat-label">Verteidigung</span><span class="stat-val" id="statDef">—</span></div>
-      <div class="stat-row"><span class="stat-label">Bewegung</span><span class="stat-val" id="statMov">—</span></div>
-      <div class="stat-row"><span class="stat-label">Reichweite</span><span class="stat-val" id="statRng">—</span></div>
-      <div class="stat-row"><span class="stat-val" id="unitStatus" style="font-size:11px;color:#8b949e"></span></div>
-    </div>
-
     <button id="btnEndTurn">Zug beenden</button>
   </div>
   <div id="ui-scroll">
@@ -104,23 +93,15 @@
   <div class="card">
     <h3>Kontrollzone</h3>
     <div class="stat-row"><span class="stat-label">Besitzer</span><span class="stat-val" id="zoneOwnerLabel">⬜ Neutral</span></div>
-    <div style="margin:4px 0 2px 0;">
-      <div style="display:flex;justify-content:space-between;margin-bottom:3px">
-        <span style="color:#79c0ff;font-size:11px">Spieler</span>
-        <span style="color:#79c0ff;font-weight:bold"><span id="zoneScorePlayer">0</span>/10</span>
-      </div>
-      <div style="height:6px;background:#21262d;border-radius:3px;overflow:hidden">
-        <div id="zoneBarPlayer" style="height:100%;background:#388bfd;border-radius:3px;transition:width 0.3s;width:0%"></div>
-      </div>
+    <!-- balance bar: centre = 0, left = KI (rot), right = Spieler (grün) -->
+    <div style="position:relative;height:10px;background:#21262d;border-radius:5px;overflow:hidden;margin:6px 0 2px 0">
+      <div id="zoneBalanceBar" style="position:absolute;top:0;height:100%;transition:left 0.3s,width 0.3s,background 0.3s"></div>
+      <div style="position:absolute;left:50%;top:0;width:2px;height:100%;background:#484f58;transform:translateX(-50%)"></div>
     </div>
-    <div>
-      <div style="display:flex;justify-content:space-between;margin-bottom:3px">
-        <span style="color:#f85149;font-size:11px">KI</span>
-        <span style="color:#f85149;font-weight:bold"><span id="zoneScoreAI">0</span>/10</span>
-      </div>
-      <div style="height:6px;background:#21262d;border-radius:3px;overflow:hidden">
-        <div id="zoneBarAI" style="height:100%;background:#da3633;border-radius:3px;transition:width 0.3s;width:0%"></div>
-      </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:#484f58">
+      <span style="color:#f85149">KI</span>
+      <span id="zoneBalanceLabel" style="color:#8b949e">0</span>
+      <span style="color:#3fb950">Spieler</span>
     </div>
     <div style="font-size:10px;color:#484f58;margin-top:5px;line-height:1.5">Einheiten in der Zone: kein Angriff, halbe Verteidigung</div>
   </div>
@@ -163,7 +144,10 @@
 
   <div id="ui-bottom">
     <div class="card" style="padding:6px">
-      <h3 style="margin-bottom:4px">Minimap</h3>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <h3 style="margin:0">Minimap</h3>
+        <span id="seedDisplay" style="font-size:10px;color:#c6cacf;font-family:monospace">—</span>
+      </div>
       <canvas id="minimap" style="width:100%;display:block;border-radius:4px;border:1px solid #30363d"></canvas>
     </div>
     <button id="btnNewGame">Neues Spiel</button>
@@ -261,13 +245,14 @@ let turnCount = 1;
 let gamePhase = 'select'; // select | move | attack
 let aiThinking = false;
 let showDebugPaths = false; // toggle visualisation of balance paths
+let activeSeed = 0;     // seed of the currently loaded map
 
 
 // Control zone state
-let zoneOwner = -1;      // -1=neutral, 0=player, 1=AI
-let zoneScore = [0, 0];  // [playerScore, aiScore]
+let zoneOwner = -1;       // -1=neutral, 0=player, 1=AI
+let zoneBalance = 0;      // -20..+20; positive = player leading, negative = AI leading
 let debugPaths = { player: [], ai: [] }; // visualisation of balance paths
-const ZONE_WIN_SCORE = 10;
+const ZONE_WIN_SCORE = 20;
 
 function inZone(col, row) {
   return ZONE_CELLS.some(z => z.col===col && z.row===row);
@@ -280,9 +265,12 @@ function evaluateZone() {
   const zUnits = units.filter(u => inZone(u.col, u.row));
   const owners = [...new Set(zUnits.map(u => u.owner))];
   zoneOwner = owners.length === 1 ? owners[0] : -1;
-  if (zoneOwner >= 0) {
-    zoneScore[zoneOwner]++;
-    addLog(`Zone: ${zoneOwner===0?'Spieler':'KI'} +1 Punkt (${zoneScore[zoneOwner]}/${ZONE_WIN_SCORE})`, 'turn');
+  if (zoneOwner === 0) {
+    zoneBalance = Math.min(ZONE_WIN_SCORE, zoneBalance + 1);
+    addLog(`Zone: Spieler +1 (Waage: ${zoneBalance > 0 ? '+' : ''}${zoneBalance})`, 'turn');
+  } else if (zoneOwner === 1) {
+    zoneBalance = Math.max(-ZONE_WIN_SCORE, zoneBalance - 1);
+    addLog(`Zone: KI +1 (Waage: ${zoneBalance > 0 ? '+' : ''}${zoneBalance})`, 'turn');
   }
 }
 
@@ -331,8 +319,9 @@ function hexDistance(c1, r1, c2, r2) {
 // ============================================================
 //  MAP GENERATION
 // ============================================================
-function generateMap() {
-  seed = Date.now();
+function generateMap(forceSeed) {
+  seed = (forceSeed !== undefined && forceSeed !== null) ? forceSeed : (1000 + Math.floor(Math.random() * 9000));
+  activeSeed = seed;
 
   // Height noise with mountain peaks
   const noise = Array.from({ length: ROWS }, () => new Float32Array(COLS));
@@ -540,6 +529,46 @@ function balanceWithSwamp() {
     return found || (side === 0 ? { col: 2, row: 4 } : { col: COLS-3, row: 4 });
   }
 
+  // Find catapult start position by simulating placeStartingUnits scan (catapult = index 4)
+  function findCatapultPos(side) {
+    let found = null, count = 0;
+    outer:
+    for (let r = 1; r < ROWS; r++) {
+      const cols = side === 0
+        ? [1, 2, 3, 4]
+        : [COLS-2, COLS-3, COLS-4, COLS-5];
+      for (const c of cols) {
+        if (TERRAIN[map[r][c]].passable) {
+          if (count === 4) { found = { col: c, row: r }; break outer; }
+          count++;
+        }
+      }
+    }
+    return found || (side === 0 ? { col: 2, row: 5 } : { col: COLS-3, row: 5 });
+  }
+
+  // BFS check: can a catapult reach any zone cell? Mountains are impassable for catapults.
+  function catapultCanReachZone(start) {
+    const visited = new Set([`${start.col},${start.row}`]);
+    const queue = [{ col: start.col, row: start.row }];
+    while (queue.length) {
+      const cur = queue.shift();
+      if (inZone(cur.col, cur.row)) return true;
+      for (const nb of hexNeighbors(cur.col, cur.row)) {
+        const key = `${nb.col},${nb.row}`;
+        if (visited.has(key)) continue;
+        const t = TERRAIN[map[nb.row][nb.col]];
+        // catapults cannot pass mountains or impassable terrain
+        if (!t.passable) continue;
+        if (map[nb.row][nb.col] === 'mountain') continue;
+        if (inZoneCore(nb.col, nb.row)) continue;
+        visited.add(key);
+        queue.push({ col: nb.col, row: nb.row });
+      }
+    }
+    return false;
+  }
+
   const playerCenter = findCavalryPos(0);
   const aiCenter     = findCavalryPos(1);
 
@@ -548,7 +577,10 @@ function balanceWithSwamp() {
   const initialA = dijkstraPath(aiCenter);
   // Also invalid if any zone cell is impassable terrain (lake/river)
   const zoneBlocked = ZONE_CELLS.some(z => !TERRAIN[map[z.row][z.col]].passable);
-  if (!initialP.length || !initialA.length || zoneBlocked) return false;
+  // Check catapults (cannot enter mountains) can reach the zone from both sides
+  const catapultP = catapultCanReachZone(findCatapultPos(0));
+  const catapultA = catapultCanReachZone(findCatapultPos(1));
+  if (!initialP.length || !initialA.length || zoneBlocked || !catapultP || !catapultA) return false;
 
   // Iteratively place one swamp on the shorter path, recalculate, repeat until equal
   const MAX_ITER = 40;
@@ -1009,12 +1041,12 @@ function checkEndCondition() {
     setTimeout(() => showMessage(p ? 'Sieg! 🎉' : 'Niederlage!', `${winner} hat alle Einheiten vernichtet!`), 400);
     return true;
   }
-  if (zoneScore[0] >= ZONE_WIN_SCORE) {
-    setTimeout(() => showMessage('Sieg! 🎉', `Spieler kontrolliert die Zone (${zoneScore[0]}/${ZONE_WIN_SCORE} Punkte)!`), 400);
+  if (zoneBalance >= ZONE_WIN_SCORE) {
+    setTimeout(() => showMessage('Sieg! 🎉', `Spieler kontrolliert die Zone (Waage: +${zoneBalance})!`), 400);
     return true;
   }
-  if (zoneScore[1] >= ZONE_WIN_SCORE) {
-    setTimeout(() => showMessage('Niederlage!', `KI kontrolliert die Zone (${zoneScore[1]}/${ZONE_WIN_SCORE} Punkte)!`), 400);
+  if (zoneBalance <= -ZONE_WIN_SCORE) {
+    setTimeout(() => showMessage('Niederlage!', `KI kontrolliert die Zone (Waage: ${zoneBalance})!`), 400);
     return true;
   }
   return false;
@@ -1382,6 +1414,9 @@ function redraw() {
 
   ctx.restore();
 
+  // Selected unit popup (drawn in screen coords, outside scaled context)
+  if (selectedUnit) drawSelectedUnitPopup(selectedUnit);
+
   // --- minimap ---
   const mm = document.getElementById('minimap');
   const mmW = mm.offsetWidth || 220;
@@ -1429,7 +1464,7 @@ function canvasClick(e) {
 
   if (gamePhase==='select') {
     const u = unitAt(col, row);
-    if (u && u.owner===0 && !(u.moved&&u.attacked)) selectUnit(u);
+    if (u && u.owner===0) selectUnit(u);
 
   } else if (gamePhase==='move') {
     const enemy = units.find(u=>u.owner===1&&u.col===col&&u.row===row);
@@ -1452,7 +1487,7 @@ function canvasClick(e) {
     } else if (own && own!==selectedUnit) {
       selectUnit(own);
     } else {
-      deselect();
+      deselect(); redraw(); updateUI();
     }
 
   } else if (gamePhase==='attack') {
@@ -1465,7 +1500,6 @@ function canvasClick(e) {
       checkEndCondition();
       deselect(); redraw(); updateUI();
     } else {
-      if (selectedUnit) { selectedUnit.attacked = true; }
       deselect(); redraw(); updateUI();
     }
   }
@@ -1490,7 +1524,7 @@ function startDrag(e)  { isDragging = false; dragStart={x:e.clientX,y:e.clientY}
 function onMouseMove(e) {
   if (!dragStart) return;
   const dx = e.clientX-dragStart.x, dy = e.clientY-dragStart.y;
-  if (Math.abs(dx)+Math.abs(dy) > 10) { // threshold to prevent click misfires
+  if (Math.abs(dx)+Math.abs(dy) > 10) {
     isDragging = true;
     const maxX = Math.max(-HW, HW*(COLS+0.5)-(canvas.width-UI_W)/zoom);
     const maxY = Math.max(-HEX_SIZE, VERT_SPACING*(ROWS-1)+HEX_SIZE*2-canvas.height/zoom);
@@ -1502,17 +1536,103 @@ function onMouseMove(e) {
 function stopDrag()    { dragStart = null; setTimeout(()=>{ isDragging=false; }, 10); }
 
 // ============================================================
+//  UNIT TOOLTIP
+// ============================================================
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x+r, y); c.lineTo(x+w-r, y); c.quadraticCurveTo(x+w,y, x+w,y+r);
+  c.lineTo(x+w, y+h-r); c.quadraticCurveTo(x+w,y+h, x+w-r,y+h);
+  c.lineTo(x+r, y+h); c.quadraticCurveTo(x,y+h, x,y+h-r);
+  c.lineTo(x, y+r); c.quadraticCurveTo(x,y, x+r,y);
+  c.closePath();
+}
+
+function drawSelectedUnitPopup(unit) {
+  const def = unitDef(unit);
+  const pad = 12, lh = 19, w = 178;
+  const expBonus = Math.floor(unit.atkBonus || 0);
+  const rows = [
+    { label: def.symbol + '\u2002' + def.label, val: '', header: true },
+    { label: 'HP',           val: unit.hp + '\u2009/\u2009' + unit.maxHp },
+    { label: 'Angriff',      val: def.atk + (expBonus > 0 ? ' (+' + expBonus + ')' : '') },
+    { label: 'Verteidigung', val: def.def },
+    { label: 'Bewegung',     val: def.mov },
+    { label: 'Reichweite',   val: def.range === 1 ? 'Nahkampf' : def.range + ' Felder' },
+  ];
+  const status = (unit.moved && unit.attacked) ? '\u2713 Zug beendet'
+               : unit.moved    ? '\u2713 Bewegt'
+               : unit.attacked ? '\u2713 Angegriffen' : '';
+  if (status) rows.push({ label: status, val: '', hint: true });
+
+  const h = pad * 2 + rows.length * lh;
+  const margin = 10;
+
+  // Position: top-right, unless the unit is in the right half → top-left
+  const { x: ux, y: uy } = hexToPixel(unit.col, unit.row);
+  const unitSX = (ux - camX) * zoom; // screen x of unit
+  const rightEdge = canvas.width - UI_W;
+  const onRight = unitSX > rightEdge / 2;
+  const tx = onRight ? margin : rightEdge - w - margin;
+  const ty = margin;
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 16;
+  ctx.fillStyle = 'rgba(22,27,34,0.97)';
+  roundRect(ctx, tx, ty, w, h, 9); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = unit.owner === 0 ? '#388bfd' : '#da3633'; ctx.lineWidth = 2;
+  roundRect(ctx, tx, ty, w, h, 9); ctx.stroke();
+
+  // HP bar
+  const pct = unit.hp / unit.maxHp;
+  const bx = tx + pad, bw = w - pad * 2, bh = 5;
+  const headerH = pad + lh;
+  ctx.fillStyle = '#21262d';
+  ctx.fillRect(bx, ty + headerH, bw, bh);
+  ctx.fillStyle = pct > 0.5 ? '#3fb950' : pct > 0.25 ? '#d29922' : '#f85149';
+  ctx.fillRect(bx, ty + headerH, bw * pct, bh);
+
+  ctx.textBaseline = 'middle';
+  let offsetY = 0;
+  for (let i = 0; i < rows.length; i++) {
+    if (i === 1) offsetY = bh + 3; // shift stat rows below HP bar
+    const ly = ty + pad + i * lh + lh / 2 + offsetY;
+    if (rows[i].header) {
+      ctx.fillStyle = unit.owner === 0 ? '#79c0ff' : '#f85149';
+      ctx.font = 'bold 13px Arial'; ctx.textAlign = 'left';
+      ctx.fillText(rows[i].label, tx + pad, ly);
+    } else if (rows[i].hint) {
+      ctx.fillStyle = '#484f58'; ctx.font = 'italic 10px Arial'; ctx.textAlign = 'left';
+      ctx.fillText(rows[i].label, tx + pad, ly);
+    } else {
+      ctx.fillStyle = '#8b949e'; ctx.font = '11px Arial'; ctx.textAlign = 'left';
+      ctx.fillText(rows[i].label, tx + pad, ly);
+      ctx.fillStyle = '#e6edf3'; ctx.font = 'bold 11px Arial'; ctx.textAlign = 'right';
+      ctx.fillText(String(rows[i].val), tx + w - pad, ly);
+    }
+  }
+  ctx.restore();
+}
+
+// ============================================================
 //  UI
 // ============================================================
 function updateUI() {
   document.getElementById('countPlayer').textContent = units.filter(u=>u.owner===0).length;
   document.getElementById('countAI').textContent     = units.filter(u=>u.owner===1).length;
-  document.getElementById('zoneScorePlayer').textContent = zoneScore[0];
-  document.getElementById('zoneScoreAI').textContent     = zoneScore[1];
   document.getElementById('zoneOwnerLabel').textContent  =
     zoneOwner===0 ? '🔵 Spieler' : zoneOwner===1 ? '🔴 KI' : '⬜ Neutral';
-  document.getElementById('zoneBarPlayer').style.width = (zoneScore[0]/ZONE_WIN_SCORE*100)+'%';
-  document.getElementById('zoneBarAI').style.width     = (zoneScore[1]/ZONE_WIN_SCORE*100)+'%';
+  // Balance bar: centre = 0, right = player (green), left = AI (red)
+  const bar = document.getElementById('zoneBalanceBar');
+  const pct = zoneBalance / ZONE_WIN_SCORE; // -1..+1
+  if (pct === 0) {
+    bar.style.left = '50%'; bar.style.width = '0%'; bar.style.background = '#fff';
+  } else if (pct > 0) {
+    bar.style.left = '50%'; bar.style.width = (pct * 50) + '%'; bar.style.background = '#3fb950';
+  } else {
+    bar.style.left = (50 + pct * 50) + '%'; bar.style.width = (-pct * 50) + '%'; bar.style.background = '#da3633';
+  }
+  document.getElementById('zoneBalanceLabel').textContent = (zoneBalance > 0 ? '+' : '') + zoneBalance;
 
   const badge = document.getElementById('turnBadge');
   badge.textContent = currentPlayer===0 ? `Zug ${turnCount} — Spieler` : `Zug ${turnCount} — KI`;
@@ -1523,26 +1643,7 @@ function updateUI() {
 
   document.getElementById('btnEndTurn').disabled = currentPlayer!==0 || aiThinking;
 
-  if (selectedUnit) {
-    const def = unitDef(selectedUnit);
-    document.getElementById('unitCard').style.display = 'block';
-    document.getElementById('unitName').textContent   = def.label;
-    const pct = selectedUnit.hp / selectedUnit.maxHp;
-    document.getElementById('hpFill').style.width  = (pct*100)+'%';
-    document.getElementById('hpFill').style.background = pct>.5?'#3fb950':pct>.25?'#d29922':'#f85149';
-    document.getElementById('statHp').textContent  = `${selectedUnit.hp}/${selectedUnit.maxHp}`;
-    const expAtk = Math.floor(selectedUnit.atkBonus || 0);
-    document.getElementById('statAtk').textContent = expAtk > 0 ? `${def.atk} (+${expAtk})` : def.atk;
-    document.getElementById('statDef').textContent = def.def;
-    document.getElementById('statMov').textContent = def.mov;
-    document.getElementById('statRng').textContent = def.range===1?'Nahkampf':`${def.range} Felder`;
-    const flags = [];
-    if (selectedUnit.moved)   flags.push('Bewegt');
-    if (selectedUnit.attacked) flags.push('Angegriffen');
-    document.getElementById('unitStatus').textContent = flags.join(' · ') || (selectedUnit.owner===0?'Bereit':'');
-  } else {
-    document.getElementById('unitCard').style.display = 'none';
-  }
+  // unit popup is drawn on canvas via drawSelectedUnitPopup() in redraw()
 }
 
 const maxLog = 50;
@@ -1564,17 +1665,18 @@ function showMessage(title, text) {
 // ============================================================
 //  INIT
 // ============================================================
-function initGame() {
+function initGame(forceSeed) {
   document.getElementById('msgOverlay').style.display = 'none';
   document.getElementById('logBox').innerHTML = '';
   currentPlayer=0; turnCount=1; gamePhase='select'; aiThinking=false;
   selectedUnit=null; reachableHexes=[]; attackableHexes=[];
-  zoneOwner=-1; zoneScore=[0,0];
+  zoneOwner=-1; zoneBalance=0;
 
-  generateMap();
+  generateMap(forceSeed);
   while (!balanceWithSwamp()) {
     generateMap(); // regenerate until both sides have a valid path to the zone
   }
+  document.getElementById('seedDisplay').textContent = activeSeed;
   placeStartingUnits();
 
   // center camera on player
@@ -1678,7 +1780,6 @@ window.addEventListener('load', () => {
   canvas.addEventListener('touchend', e => {
     e.preventDefault();
     if (!isDragging && dragStart) {
-      // treat as tap → simulate click
       const t = e.changedTouches[0];
       const rect = canvas.getBoundingClientRect();
       const fake = { clientX: t.clientX, clientY: t.clientY,
@@ -1710,7 +1811,12 @@ document.getElementById('btnToggleDebugPaths').addEventListener('click', () => {
   redraw();
 });
 
-document.getElementById('btnNewGame').addEventListener('click', initGame);
+document.getElementById('btnNewGame').addEventListener('click', () => {
+  const input = prompt('Seed eingeben (leer lassen für zufällige Karte):');
+  if (input === null) return; // cancelled
+  const parsed = parseInt(input.trim(), 10);
+  initGame(isNaN(parsed) ? undefined : parsed);
+});
 
 // Minimap navigation
 (function() {
